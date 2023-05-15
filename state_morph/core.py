@@ -1,8 +1,4 @@
 import math
-import json
-import os
-import sys
-import re
 from copy import deepcopy
 
 class BaseModel(object):
@@ -74,6 +70,13 @@ class BaseModel(object):
         if update_model:
             self.update_model()
     
+    def train_step(self):
+        segmented_corpus = []
+        for segment, _ in self.segmented_corpus:
+            word = ''.join([morph for morph, _ in segment])
+            segmented_corpus.append(self.search(word))
+        self.update_segmented_corpus(segmented_corpus)
+        return self.get_param_dict(), segmented_corpus
     
     def update_model(self):
         morph_dict = {}

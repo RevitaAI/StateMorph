@@ -1,6 +1,10 @@
 
 from .core import BaseModel
-import pickle
+try:
+    # In Python2 import cPickle for better performance
+    import cPickle as pickle
+except ImportError:
+    import pickle
 import re
 
 class StateMorphIO(object):
@@ -47,7 +51,7 @@ class StateMorphIO(object):
             'model_param': model.get_param_dict(),
             'segmented_corpus': model.segmented_corpus,
         }
-        pickle.dump(model_data, open(filename, 'wb'))
+        pickle.dump(model_data, open(filename, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
 
     
     
