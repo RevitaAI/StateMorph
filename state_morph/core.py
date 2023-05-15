@@ -74,7 +74,11 @@ class BaseModel(object):
         segmented_corpus = []
         for segment, _ in self.segmented_corpus:
             word = ''.join([morph for morph, _ in segment])
-            segmented_corpus.append(self.search(word))
+            new_segment, new_cost = self.search(word)
+            if new_cost != math.inf:
+                segmented_corpus.append((new_segment, new_cost))
+            else:
+                segmented_corpus.append((segment, _))
         self.update_segmented_corpus(segmented_corpus)
         return self.get_param_dict(), segmented_corpus
     
@@ -109,11 +113,13 @@ class BaseModel(object):
                     state_char_counts[state][c] += 1
                 state_freq[state] = state_freq.get(state, 0) + 1
                 p_state = state
-                
+
         end_state = len(state_freq)
         for segment, _ in self.segmented_corpus:
             state = segment[-1][1]
             state_freq[end_state] = state_freq.get(end_state, 0) + 1
+            if state not in transition_freq_dict:
+                transition_freq_dict[state] = {}
             transition_freq_dict[state][end_state] = transition_freq_dict[state].get(end_state, 0) + 1
         
         state_size = {0: 0, end_state: 0}

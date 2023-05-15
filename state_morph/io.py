@@ -45,7 +45,7 @@ class StateMorphIO(object):
         model.update_segmented_corpus(model_data['segmented_corpus'], update_model=False)
         return model
 
-    def write_binary_file(self, model, filename):
+    def write_binary_model_file(self, model, filename):
         """Write state morphology to a binary file."""
         model_data = {
             'model_param': model.get_param_dict(),

@@ -5,10 +5,11 @@ from multiprocessing import Pool
 
 def _map_step(partition_id, model_param, segmented_corpus):
     """Map step function for multiprocessing."""
-    print('Partition', partition_id, 'started...')
+    print('Map ID:', partition_id, 'Corpus size:', len(segmented_corpus), 'started...')
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus, update_model=False)
     model_param, segmented_corpus = model.train_step()
+    print('Map ID:', partition_id, 'ended...')
     return model_param, segmented_corpus
 
 def _reduce_step(total_model_param, total_corpus, model_param, segmented_corpus):
@@ -48,38 +49,72 @@ def _reduce_step(total_model_param, total_corpus, model_param, segmented_corpus)
 
 
 class StateMorphTrainer(object):
-    def __init__(self, model) -> None:
-        self.base_model = model
+    def __init__(self, num_state) -> None:
+        self.num_state = num_state
+    
+    def load_raw_corpus(self, corpus_file, **kwargs) -> None:
+        """Load corpus to state morphology model."""
+        with open(corpus_file, 'r', encoding='utf-8') as f:
+            corpus = f.read().splitlines()
+            segmented_corpus = self.__random_segment(corpus)
+            model_params = {
+                'morph_dict':  {},
+                'state_freq': {},
+                'state_size': {},
+                'state_char_counts': {},
+                'transition_freq': [],
+            }
+            model = BaseModel(model_params, **kwargs)
+            model.update_segmented_corpus(segmented_corpus)
+            self.__base_model = model
+    
+    def __random_segment(self, corpus) -> list:
+        segmented_corpus = []
+        for word in corpus:
+            segment = []
+            if len(word) > 1:
+                j = 0
+                for i in random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)):
+                    morph = word[j:i]
+                    segment.append((morph, random.randint(1, self.num_state)))
+            else:
+                segment.append((word, random.randint(1, self.num_state)))
+            segmented_corpus.append((segment, 0))
+        return segmented_corpus
+             
     
     def train(self, iteration=10, num_processes=5) -> BaseModel:
         """Train state morphology model."""
-        model_param = self.base_model.get_param_dict()
-        segmented_corpus = self.base_model.segmented_corpus
-        with Pool(num_processes) as p:
-            for _ in range(iteration):
-                
-                random.shuffle(segmented_corpus)
-                partition_size = len(segmented_corpus) // num_processes
-                partition = [(i, model_param, segmented_corpus[i:i+partition_size])
-                             for i in range(0, len(segmented_corpus), partition_size)]
-                
-                total_model_param = {
-                    'morph_dict': {},
-                    'state_freq': {},
-                    'state_size': {},
-                    'state_char_counts': {},
-                    'transition_freq': [],
-                }
-                total_segmented_corpus = []
-                for model_param, segmented_corpus in p.map(_map_step, partition):
+        model_param = self.__base_model.get_param_dict()
+        segmented_corpus = self.__base_model.segmented_corpus
+       
+        for _ in range(iteration):
+            random.shuffle(segmented_corpus)
+            partition_size = len(segmented_corpus) // num_processes
+            partitions = [segmented_corpus[i:i+partition_size]
+                         for i in range(0, len(segmented_corpus), partition_size)]
+            temp = partitions[:-1]
+            temp[-1] += partitions[-1]
+            partitions = temp 
+            partition = [(_, model_param, partition) for _, partition in enumerate(partitions)]
+            
+            total_model_param = {
+                'morph_dict': {},
+                'state_freq': {},
+                'state_size': {},
+                'state_char_counts': {},
+                'transition_freq': [],
+            }
+            total_segmented_corpus = []
+            with Pool(num_processes) as p:
+                for model_param, segmented_corpus in p.starmap(_map_step, partition):
                     _reduce_step(total_model_param, total_segmented_corpus, model_param, segmented_corpus)
-                
-                model_param = total_model_param
-                segmented_corpus = total_segmented_corpus
-                
-                
-                
-                print('Iteration: {}, Cost: {}'.format(_, sum([cost for _, cost in segmented_corpus])))
+                p.close()
+                p.join()
+            print('Reduce step finished...')
+            model_param = total_model_param
+            segmented_corpus = total_segmented_corpus
+            print('Iteration: {}, Cost: {}'.format(_, sum([cost for _, cost in segmented_corpus])))
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
         return new_model
