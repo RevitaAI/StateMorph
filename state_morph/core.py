@@ -79,7 +79,7 @@ class BaseModel(object):
                 segmented_corpus.append((new_segment, new_cost))
             else:
                 segmented_corpus.append((segment, _))
-        self.update_segmented_corpus(segmented_corpus)
+        self.update_segmented_corpus([_ for _ in segmented_corpus if _[1] > 0])
         return self.get_param_dict(), segmented_corpus
     
     def update_model(self):

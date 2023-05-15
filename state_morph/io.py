@@ -31,12 +31,17 @@ class StateMorphIO(object):
     def write_segmented_file(self, model, segmented_file):
         """Write state morphology to a file."""
         with open(segmented_file, 'w', encoding='utf-8') as f:
+            word2segment = {}
             for segments, cost in model.segmented_corpus:
                 tmp = []
+                word = ''
                 for morph, state in segments:
                     tmp.append(morph)
                     tmp.append(str(state))
-                f.write(' '.join(tmp) + '\t' + '{:.4f}'.format(cost) + '\n')
+                    word += morph
+                word2segment[word] = ' '.join(tmp) + '\t' + '{:.4f}'.format(cost)
+            for word in sorted(word2segment.keys()):
+                f.write(word2segment[word] + '\n')
         
     def load_model_from_binary_file(self, filename: str, **kwargs) -> None:
         """Read state morphology from binary file."""

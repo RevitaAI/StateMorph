@@ -1,6 +1,7 @@
 
 from .core import BaseModel
 import random
+from statistics import mean
 from multiprocessing import Pool
 
 def _map_step(partition_id, model_param, segmented_corpus):
@@ -49,8 +50,13 @@ def _reduce_step(total_model_param, total_corpus, model_param, segmented_corpus)
 
 
 class StateMorphTrainer(object):
-    def __init__(self, num_state) -> None:
+    def __init__(self, num_state, delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95) -> None:
         self.num_state = num_state
+        self.__delta = delta
+        self.__patience = patience
+        self.__final_temp = final_temp
+        self.__alpha = alpha
+        self.__current_temp = init_temp
     
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
         """Load corpus to state morphology model."""
@@ -77,19 +83,28 @@ class StateMorphTrainer(object):
                 for i in random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)):
                     morph = word[j:i]
                     segment.append((morph, random.randint(1, self.num_state)))
+                    j = i
             else:
                 segment.append((word, random.randint(1, self.num_state)))
             segmented_corpus.append((segment, 0))
         return segmented_corpus
              
+    def __merge_morph(self, segmented_corpus) -> list:
+        corpus = []
+        for segment, _ in segmented_corpus:
+            word = ''.join([morph for morph, _ in segment])
+            corpus.append(word)
+        return corpus
+    
     
     def train(self, iteration=10, num_processes=5) -> BaseModel:
         """Train state morphology model."""
         model_param = self.__base_model.get_param_dict()
         segmented_corpus = self.__base_model.segmented_corpus
-       
+        p_loss = -1
+        count = 0
         for _ in range(iteration):
-            random.shuffle(segmented_corpus)
+            print('Iteration:', _, 'Temperature:', self.__current_temp)
             partition_size = len(segmented_corpus) // num_processes
             partitions = [segmented_corpus[i:i+partition_size]
                          for i in range(0, len(segmented_corpus), partition_size)]
@@ -114,7 +129,24 @@ class StateMorphTrainer(object):
             print('Reduce step finished...')
             model_param = total_model_param
             segmented_corpus = total_segmented_corpus
-            print('Iteration: {}, Cost: {}'.format(_, sum([cost for _, cost in segmented_corpus])))
+            loss = mean([cost for _, cost in segmented_corpus if cost > 0])
+            print('Iteration: {}, Cost: {}'.format(_, loss))
+            
+            # Early stopping
+            if abs(p_loss - loss) < self.__delta:
+                count += 1
+                if count == self.__patience:
+                    print('Early stopping...')
+                    break
+            else:
+                count = 0
+                p_loss = loss
+                
+            random.shuffle(segmented_corpus)
+            i = int(len(segmented_corpus) * self.__current_temp)
+            segmented_corpus = self.__random_segment(self.__merge_morph(segmented_corpus[:i])) + segmented_corpus[i:]
+            self.__current_temp = max(self.__final_temp, self.__current_temp * self.__alpha)
+            
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
         return new_model
