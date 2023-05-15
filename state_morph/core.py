@@ -1,0 +1,253 @@
+import math
+import json
+import os
+import sys
+import re
+from copy import deepcopy
+
+class BaseModel(object):
+    PRIOR = 0.5
+    LOG_2 = math.log(2)
+    HALF_LOG_2_PI = 0.5 * math.log(2.0 * math.pi)
+    MORPH_SIZE = 8
+    def __init__(self, model_param, dummy_segment_states=False):
+        '''
+        # Load by using segmentation and lexicon file, which is the direct output from java code
+        # A model param json file will be dumped
+        # segmenter = Segmenter(segmented_file='segmented_file_path', lexicon_file='lexicon_path', model_path='./')
+
+        # Load by using direct string from segmentation and lexicon file
+        # A model param json file will be dumped
+        # Suitable for multiprocessing
+        # raw_segments_str = ''
+        # raw_lexicon_str = ''
+        # with open(lexicon_path, 'r', encoding='utf-8') as f:
+        #     raw_lexicon_str = f.read()
+        # with open(model_path, 'r', encoding='utf-8') as f:
+        #     raw_segments_str = f.read()
+        # segmenter = Segmenter(raw_segments_str=raw_segments_str, raw_lexicon_str=raw_lexicon_str, model_path='./')
+
+        # Load by using model param dict, which is read from the json file (recommended)
+        # Suitable for multiprocessing
+        # model_params = json.load(open('model_params.json', 'r', encoding='utf-8'))
+        # segmenter = Segmenter(model_params=model_params)
+        
+        # Segment
+        # BaseModel.segment('aaltoenergiaa')
+        # Output
+        # {
+            'morphs': list of morphs,
+            'states': list of stats,
+            'segment': list of morph-state tuples,
+            'cost': cost
+        }
+
+        # Varify result
+        # aaltoenergiaa
+        # aalto 4 energia 11 a 8 	31.6421
+        BaseModel.debug_segment('aaltoenergiaa', [('aalto', 4), ('energia', 11), ('a', 8)], 31.6421)
+        '''
+        self.dummy_segment_states = dummy_segment_states   
+        self.morph_dict = {} # Morph dictionary {morph: {state: freq}}
+        self.state_freq = {} # State frequency {state: freq}
+        self.state_size = {} # State size {state: morph size}
+        self.state_char_counts = {} # State char counts {state: {char: freq}}
+        self.transition_freq = None # Transition frequency {from_state: {to_state: freq}}
+        self.state_num = 0
+        self.charset = set()
+        self.lexicon_costs = []
+        self.transition_costs = []
+        self.corpus = []
+        self.__segmented_corpus = []
+        self.__load_model_params(model_param)
+        
+    def to_formatted_segmented_corpus(self):
+        print(self.__segmented_corpus)
+    
+    
+    def to_param_dict(self):
+        model_params = {
+            'morph_dict': self.morph_dict,
+            'state_freq': self.state_freq,
+            'state_size': self.state_size,
+            'state_char_counts': self.state_char_counts,
+            'transition_freq': self.transition_freq,
+            'state_num': self.state_num,
+            'charset': list(self.charset),
+            'corpus': self.corpus
+        }
+        return model_params
+        
+    
+    def __load_model_params(self, model_params:dict):
+        self.morph_dict = {k: {int(vk): vv for vk, vv in v.items()} for k, v in model_params['morph_dict'].items()}
+        self.state_freq = {int(k): v for k, v in model_params['state_freq'].items()}
+        self.state_size = {int(k): v for k, v in model_params['state_size'].items()}
+        self.state_char_counts = {int(k): v for k, v in model_params['state_char_counts'].items()}
+        self.transition_freq = model_params['transition_freq']
+        self.state_num = model_params['state_num']
+        self.charset = set(model_params['charset'])
+        self.init_costs()
+        
+
+    def update_costs(self):
+        self.lexicon_costs = [self.__get_lexicon_cost(_) for _ in range(1, self.state_num)]
+        self.transition_costs = [[self.__get_transition_cost(i, j) 
+                                  for j in range(self.state_num)] 
+                                 for i in range(self.state_num)]
+        
+    def update_model(self):
+        morph_dict = {}
+        state_freq = {}
+        state_size = {0: 0, self.state_num - 1: 0}
+        state_char_counts = {}
+        transition_freq = {}
+        segmented_corpus = []
+        for word in self.corpus:
+            segment, cost = self.segment(word)
+            segmented_corpus.append((segment, cost))
+            p_state = 0
+            state_freq[0] = state_freq.get(0, 0) + 1
+            for morph, state in segment:
+                if morph not in morph_dict:
+                    morph_dict[morph] = {}
+                if state not in morph_dict[morph]:
+                    morph_dict[morph][state] = 0
+                morph_dict[morph][state] += 1
+                if p_state not in self.transition_freq:
+                    transition_freq[p_state] = {}
+                if state not in self.transition_freq[p_state]:
+                    transition_freq[p_state][state] = 0
+                transition_freq[p_state][state] += 1
+                for c in morph:
+                    if state not in state_char_counts:
+                        state_char_counts[state] = {}
+                    if c not in state_char_counts[state]:
+                        state_char_counts[state][c] = 0
+                    state_char_counts[state][c] += 1
+                state_freq[state] = state_freq.get(state, 0) + 1
+                p_state = state
+            state_freq[self.state_num - 1] = state_freq.get(self.state_num - 1, 0) + 1
+            transition_freq[state][self.state_num - 1] = transition_freq[state].get(self.state_num - 1, 0) + 1
+        state_size.update({k: sum([v for _, v in v.items()]) for k, v in morph_dict.items()})
+        self.morph_dict = morph_dict
+        self.state_freq = state_freq
+        self.state_size = state_size
+        self.state_char_counts = state_char_counts
+        self.transition_freq = transition_freq
+        self.__segmented_corpus = segmented_corpus
+        
+
+    def compute_cost(self, segment: list) -> float:
+        # self.__get_lexicon_cost(0) + self.__get_transition_costs(0, 1) + self.__get_emission_cost(0, '')
+        cost = 0
+        morphs = list(map(lambda x: x[0], segment))
+        states = list(map(lambda x: x[1], segment))
+        # cost += sum([self.lexicon_costs[_] for _ in states])
+        # cost += sum([self.__get_simple_lexicon_cost(_) for _ in morphs])
+        transitions = [(states[_], states[_ + 1]) for _ in range(len(states) - 1)]
+        transitions.insert(0, (0, states[0]))
+        transition_cost = sum([self.transition_costs[a][b] for a, b in transitions])
+        emisstion_cost = sum([self.__get_emission_cost(morph, state) for morph, state, in segment])
+        cost += transition_cost
+        cost += emisstion_cost
+        return cost
+
+    def search(self, word: str) -> tuple :
+        dp_matrix = [[{'state': state, 'char_index': char_index, 'cost': math.inf, 'previous': None, 'morph': ''} 
+                      for state in range(self.state_num)] 
+                    for char_index in range(len(word) + 2)]
+        dp_matrix[0][0]['cost'] = 0
+        for row in range(1, len(word) + 2):
+            for col in range(1, self.state_num):
+                if (row != len(word) + 1 and col != self.state_num - 1) or \
+                   (row == len(word) + 1 and col == self.state_num - 1):
+                    current_cell = dp_matrix[row][col]
+                    search_space = [cell for rows in dp_matrix[max(row - BaseModel.MORPH_SIZE, 0): row] for cell in rows[: -1]]
+                    costs = []
+                    for previous_cell in search_space:
+                        morph = word[previous_cell['char_index']: current_cell['char_index']]
+                        cost = previous_cell['cost']
+                        if not math.isinf(cost**2):
+                            cost += self.transition_costs[previous_cell['state']][current_cell['state']]
+                            cost += self.__get_emission_cost(morph, current_cell['state'])
+                            if math.isinf(cost):
+                                cost = cost ** 2
+                        costs.append(cost)
+                    idx, cost = min(enumerate(costs), key=lambda x: x[1])
+                    current_cell['previous'] = search_space[idx]
+                    current_cell['cost'] = cost
+                    current_cell['morph'] = word[search_space[idx]['char_index']: current_cell['char_index']]
+        p = dp_matrix[-1][-1]
+        cost = p['cost']
+        reversed_path = []
+        while p['previous'] is not None:
+            reversed_path.append(p)
+            p = p['previous']
+        segment = list(map(lambda x: (x['morph'], x['state']), reversed(reversed_path)))[:-1]
+        return segment, cost
+
+    def debug_segment(self, word:str, expected_segment: list, expected_cost: float) -> None:
+        segment, cost = self.search(word)
+        print('If same segment', len(segment)== len(expected_segment) and all(i==j for i, j in zip(segment, expected_segment)))
+        print('Cost prec error:', float(format((cost - expected_cost) / expected_cost, '.5f')), '%')
+
+
+    def __get_emission_cost(self, morph: str, state: int) -> float:
+        if morph == '' and state == self.state_num - 1:
+            return 0
+        # d = morph.getFrequency() + constants.getPrior();
+        d = self.morph_dict.get(morph, {}).get(state, math.inf) + BaseModel.PRIOR
+        #cost = - AmorphousMath.log2(d / (s.classFrequency() + s.classSize()*constants.getPrior()));
+        cost =  - math.log2(d / (self.state_freq[state] + self.state_size[state] * BaseModel.PRIOR))
+        return cost
+
+
+    def __get_transition_cost(self, state_a: int, state_b: int) -> float:
+        cost = - math.log2((self.transition_freq[state_a][state_b] + BaseModel.PRIOR) / (self.state_freq[state_a] + (self.state_num - 2)* BaseModel.PRIOR))
+        return cost
+
+    def __get_simple_lexicon_cost(self, morph: str) -> float:
+        return len(morph) + 1 + math.log(len(self.charset) + 2)
+
+
+    def __get_lexicon_cost(self, state_id: int) -> float:
+        #int classSize = lexicon.getMorphList(state).size();
+        #double classLexCost = computePrequentialCostForMap(classCount);
+        if not state_id or state_id == self.state_num - 1:
+            state_lex_cost = self.__get_class_lex_cost([])
+        else:
+            state_lex_cost = self.__get_class_lex_cost(list(self.state_char_counts[state_id].values()))
+        #we add one because Elias coding works only for positive integers but we deal with nonnegative integers.
+        #double costOfCodingSize = amorphous.math.AmorphousMath.computeEliasOmegaLength(classSize + 1); 
+        cost_of_coding_size = self.__compute_elias_omega_length(self.state_size[state_id] + 1)
+        return cost_of_coding_size + state_lex_cost
+
+
+    def __get_class_lex_cost(self, counts: list) -> float:
+        if not len(counts):
+            return 0
+        cost = 0
+        sumOfEvents = 0
+        sumOfPriors = 0
+        for d in counts:
+            cost -= math.lgamma(d + BaseModel.PRIOR) / BaseModel.LOG_2
+            cost += math.lgamma(BaseModel.PRIOR) / BaseModel.LOG_2
+            sumOfEvents += d + BaseModel.PRIOR
+            sumOfPriors += BaseModel.PRIOR
+
+        cost += math.lgamma(sumOfEvents) / BaseModel.LOG_2
+        cost -= math.lgamma(sumOfPriors) / BaseModel.LOG_2
+        return cost
+
+
+    def __compute_elias_omega_length(self, x:int) -> float:
+        length = 0
+        i = 1
+        lambda_i_number = math.floor(math.log2(x))
+        while i >= 1 and lambda_i_number > 0:
+            length += lambda_i_number + 1
+            i += 1
+            lambda_i_number = math.floor(math.log2(lambda_i_number))
+        return length
+
