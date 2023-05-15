@@ -10,30 +10,14 @@ class BaseModel(object):
     LOG_2 = math.log(2)
     HALF_LOG_2_PI = 0.5 * math.log(2.0 * math.pi)
     MORPH_SIZE = 8
-    def __init__(self, model_param, dummy_segment_states=False):
+    def __init__(self, model_param):
         '''
-        # Load by using segmentation and lexicon file, which is the direct output from java code
-        # A model param json file will be dumped
-        # segmenter = Segmenter(segmented_file='segmented_file_path', lexicon_file='lexicon_path', model_path='./')
-
-        # Load by using direct string from segmentation and lexicon file
-        # A model param json file will be dumped
-        # Suitable for multiprocessing
-        # raw_segments_str = ''
-        # raw_lexicon_str = ''
-        # with open(lexicon_path, 'r', encoding='utf-8') as f:
-        #     raw_lexicon_str = f.read()
-        # with open(model_path, 'r', encoding='utf-8') as f:
-        #     raw_segments_str = f.read()
-        # segmenter = Segmenter(raw_segments_str=raw_segments_str, raw_lexicon_str=raw_lexicon_str, model_path='./')
-
-        # Load by using model param dict, which is read from the json file (recommended)
         # Suitable for multiprocessing
         # model_params = json.load(open('model_params.json', 'r', encoding='utf-8'))
         # segmenter = Segmenter(model_params=model_params)
         
         # Segment
-        # BaseModel.segment('aaltoenergiaa')
+        # segmenter.segment('aaltoenergiaa')
         # Output
         # {
             'morphs': list of morphs,
@@ -47,34 +31,24 @@ class BaseModel(object):
         # aalto 4 energia 11 a 8 	31.6421
         BaseModel.debug_segment('aaltoenergiaa', [('aalto', 4), ('energia', 11), ('a', 8)], 31.6421)
         '''
-        self.dummy_segment_states = dummy_segment_states   
+        
         self.morph_dict = {} # Morph dictionary {morph: {state: freq}}
         self.state_freq = {} # State frequency {state: freq}
-        self.state_size = {} # State size {state: morph size}
+        self.state_size = {} # State size {state: morph count}
         self.state_char_counts = {} # State char counts {state: {char: freq}}
-        self.transition_freq = None # Transition frequency {from_state: {to_state: freq}}
-        self.state_num = 0
-        self.charset = set()
+        self.transition_freq = [] # Transition frequency {from_state: {to_state: freq}}
         self.lexicon_costs = []
         self.transition_costs = []
-        self.corpus = []
-        self.__segmented_corpus = []
+        self.segmented_corpus = []
         self.__load_model_params(model_param)
-        
-    def to_formatted_segmented_corpus(self):
-        print(self.__segmented_corpus)
     
-    
-    def to_param_dict(self):
+    def get_param_dict(self):
         model_params = {
             'morph_dict': self.morph_dict,
             'state_freq': self.state_freq,
             'state_size': self.state_size,
             'state_char_counts': self.state_char_counts,
             'transition_freq': self.transition_freq,
-            'state_num': self.state_num,
-            'charset': list(self.charset),
-            'corpus': self.corpus
         }
         return model_params
         
@@ -85,40 +59,45 @@ class BaseModel(object):
         self.state_size = {int(k): v for k, v in model_params['state_size'].items()}
         self.state_char_counts = {int(k): v for k, v in model_params['state_char_counts'].items()}
         self.transition_freq = model_params['transition_freq']
-        self.state_num = model_params['state_num']
-        self.charset = set(model_params['charset'])
-        self.init_costs()
-        
+        self.update_costs()
 
     def update_costs(self):
+        self.state_num = len(self.state_freq)
+        self.charset = {_ for morph in self.morph_dict.keys() for _ in morph}
         self.lexicon_costs = [self.__get_lexicon_cost(_) for _ in range(1, self.state_num)]
         self.transition_costs = [[self.__get_transition_cost(i, j) 
                                   for j in range(self.state_num)] 
                                  for i in range(self.state_num)]
         
+    def update_segmented_corpus(self, segmented_corpus, update_model=True):
+        self.segmented_corpus = segmented_corpus
+        if update_model:
+            self.update_model()
+    
+    
     def update_model(self):
         morph_dict = {}
         state_freq = {}
-        state_size = {0: 0, self.state_num - 1: 0}
+        state_size = {}
         state_char_counts = {}
-        transition_freq = {}
-        segmented_corpus = []
-        for word in self.corpus:
-            segment, cost = self.segment(word)
-            segmented_corpus.append((segment, cost))
+        transition_freq_dict = {}
+        __state_morph_set = {}
+        for segment, _ in self.segmented_corpus:
             p_state = 0
             state_freq[0] = state_freq.get(0, 0) + 1
             for morph, state in segment:
+                __state_morph_set[state] = __state_morph_set.get(state, set())
+                __state_morph_set[state].add(morph)
                 if morph not in morph_dict:
                     morph_dict[morph] = {}
                 if state not in morph_dict[morph]:
                     morph_dict[morph][state] = 0
                 morph_dict[morph][state] += 1
-                if p_state not in self.transition_freq:
-                    transition_freq[p_state] = {}
-                if state not in self.transition_freq[p_state]:
-                    transition_freq[p_state][state] = 0
-                transition_freq[p_state][state] += 1
+                if p_state not in transition_freq_dict:
+                    transition_freq_dict[p_state] = {}
+                if state not in transition_freq_dict[p_state]:
+                    transition_freq_dict[p_state][state] = 0
+                transition_freq_dict[p_state][state] += 1
                 for c in morph:
                     if state not in state_char_counts:
                         state_char_counts[state] = {}
@@ -127,16 +106,24 @@ class BaseModel(object):
                     state_char_counts[state][c] += 1
                 state_freq[state] = state_freq.get(state, 0) + 1
                 p_state = state
-            state_freq[self.state_num - 1] = state_freq.get(self.state_num - 1, 0) + 1
-            transition_freq[state][self.state_num - 1] = transition_freq[state].get(self.state_num - 1, 0) + 1
-        state_size.update({k: sum([v for _, v in v.items()]) for k, v in morph_dict.items()})
+                
+        end_state = len(state_freq)
+        for segment, _ in self.segmented_corpus:
+            state = segment[-1][1]
+            state_freq[end_state] = state_freq.get(end_state, 0) + 1
+            transition_freq_dict[state][end_state] = transition_freq_dict[state].get(end_state, 0) + 1
+        
+        state_size = {0: 0, end_state: 0}
+        state_size.update({k: len(v) for k, v in __state_morph_set.items()})
         self.morph_dict = morph_dict
         self.state_freq = state_freq
         self.state_size = state_size
         self.state_char_counts = state_char_counts
-        self.transition_freq = transition_freq
-        self.__segmented_corpus = segmented_corpus
-        
+        self.transition_freq = [[transition_freq_dict.get(i, {}).get(j, 0) 
+                            for j in range(end_state + 1)] 
+                           for i in range(end_state + 1)]
+        self.update_costs()
+    
 
     def compute_cost(self, segment: list) -> float:
         # self.__get_lexicon_cost(0) + self.__get_transition_costs(0, 1) + self.__get_emission_cost(0, '')
