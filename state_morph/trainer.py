@@ -82,8 +82,12 @@ class StateMorphTrainer(object):
                 j = 0
                 for i in random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)):
                     morph = word[j:i]
+                    if len(morph) >= 1:
+                        segment.append((morph, random.randint(1, self.num_state)))
+                        j = i
+                morph = word[j:]
+                if len(morph) >= 1:
                     segment.append((morph, random.randint(1, self.num_state)))
-                    j = i
             else:
                 segment.append((word, random.randint(1, self.num_state)))
             segmented_corpus.append((segment, 0))
