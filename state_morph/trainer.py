@@ -25,7 +25,7 @@ class StateMorphTrainer(object):
         num_partitions = sum([_['nthreads'] for _ in self.client.scheduler_info()['workers'].values()])
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
-            self.__partitions = _split_partition(corpus, num_partitions)
+            self.__partitions = self.client.scatter(_split_partition(corpus, num_partitions))
             futures =  [self.client.submit(_random_segment_wrapper, i, partition, self.num_state) 
                         for i, partition in enumerate(self.__partitions)]
             results = [result for _, result in as_completed(futures, with_results=True)]
@@ -36,8 +36,9 @@ class StateMorphTrainer(object):
 
     def __step(self, i, model_param):
         print('Iteration:', i, 'Temperature:', self._current_temp)
-        futures =  [self.client.submit(_map_step, i, model_param, partition, self.num_state, self._current_temp) 
-                        for i, partition in enumerate(self.__partitions)]
+        scattered_model_param = self.client.scatter([model_param] * len(self.__partitions))
+        futures =  [self.client.submit(_map_step, i, mp, partition, self.num_state, self._current_temp) 
+                    for i, (partition, mp) in enumerate(zip(self.__partitions, scattered_model_param))]
         results = [result for _, result in as_completed(futures, with_results=True)]
         reduce_step = self.client.submit(_reduce_step_wrapper, results)
         model_param, costs = reduce_step.result()
@@ -48,8 +49,9 @@ class StateMorphTrainer(object):
     
     def __collect(self, model_param):
         print('Final iteration started...')
-        futures =  [self.client.submit(_map_segment, i, model_param, partition) 
-                        for i, partition in enumerate(self.__partitions)]
+        scattered_model_param = self.client.scatter([model_param] * len(self.__partitions))
+        futures =  [self.client.submit(_map_segment, i, mp, partition) 
+                    for i, (partition, mp) in enumerate(zip(self.__partitions, scattered_model_param))]
         results = [result for _, result in as_completed(futures, with_results=True)]
         reduce_step = self.client.submit(_reduce_segment, results)
         segmented_corpus, costs = reduce_step.result()
