@@ -5,11 +5,12 @@ from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _sp
 from statistics import mean
 import dask
 import copy
-from dask.distributed import get_client
+from dask.distributed import as_completed
 
 
 class StateMorphTrainer(object):
-    def __init__(self, num_state, delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95) -> None:
+    def __init__(self, client, num_state, delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95) -> None:
+        self.client = client
         self.num_state = num_state
         self._delta = delta
         self._patience = patience
@@ -21,29 +22,25 @@ class StateMorphTrainer(object):
     
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
         """Load corpus to state morphology model."""
-        client = get_client()
-        num_partitions = sum([_['nthreads'] for _ in client.scheduler_info()['workers'].values()])
+        num_partitions = sum([_['nthreads'] for _ in self.client.scheduler_info()['workers'].values()])
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
             self.__partitions = _split_partition(corpus, num_partitions)
-            outputs = []
-            for i, partition in enumerate(self.__partitions):
-                delayed_map_step = dask.delayed(_random_segment_wrapper)(i, partition, self.num_state)
-                outputs.append(delayed_map_step)
-            delayed_reduce_step = dask.delayed(_reduce_step_wrapper)(outputs)
-            self.__init_model_param, costs = delayed_reduce_step.compute()
+            futures =  [self.client.submit(_random_segment_wrapper, i, partition, self.num_state) 
+                        for i, partition in enumerate(self.__partitions)]
+            results = [result for _, result in as_completed(futures, with_results=True)]
+            reduce_step = self.client.submit(_reduce_step_wrapper, results)
+            self.__init_model_param, costs = reduce_step.result()
             loss = mean(costs) if len(costs) else -1
             print('Init cost:', loss)
 
     def __step(self, i, model_param):
         print('Iteration:', i, 'Temperature:', self._current_temp)
-        map_outputs = []
-        for _, partition in enumerate(self.__partitions):
-            input_arg = (_, model_param, partition, self.num_state, self._current_temp)
-            delayed_map_step = dask.delayed(_map_step)(*input_arg)
-            map_outputs.append(delayed_map_step)
-        delayed_reduce_step = dask.delayed(_reduce_step_wrapper)(map_outputs)
-        model_param, costs = delayed_reduce_step.compute()
+        futures =  [self.client.submit(_map_step, i, model_param, partition, self.num_state, self._current_temp) 
+                        for i, partition in enumerate(self.__partitions)]
+        results = [result for _, result in as_completed(futures, with_results=True)]
+        reduce_step = self.client.submit(_reduce_step_wrapper, results)
+        model_param, costs = reduce_step.result()
         print('Reduce step finished...')
         loss = mean(costs) if len(costs) else -1
         print('Iteration: {}, Cost: {}'.format(i, loss))
@@ -51,13 +48,11 @@ class StateMorphTrainer(object):
     
     def __collect(self, model_param):
         print('Final iteration started...')
-        map_outputs = []
-        for _, partition in enumerate(self.__partitions):
-            input_arg = (_, model_param, partition)
-            delayed_map_step = dask.delayed(_map_segment)(*input_arg)
-            map_outputs.append(delayed_map_step)
-        delayed_reduce_step = dask.delayed(_reduce_segment)(map_outputs)
-        segmented_corpus, costs = delayed_reduce_step.compute()
+        futures =  [self.client.submit(_map_segment, i, model_param, partition) 
+                        for i, partition in enumerate(self.__partitions)]
+        results = [result for _, result in as_completed(futures, with_results=True)]
+        reduce_step = self.client.submit(_reduce_segment, results)
+        segmented_corpus, costs = reduce_step.result()
         print('Reduce step finished...')
         loss = mean(costs) if len(costs) else -1
         print('Final iteration done, Cost: {}'.format(loss))
