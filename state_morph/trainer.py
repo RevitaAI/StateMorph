@@ -81,7 +81,7 @@ class StateMorphTrainer(object):
                 count = 0
                 p_loss = loss
                 
-            random.shuffle(segmented_corpus)
+            
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
             # client.restart()
             

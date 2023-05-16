@@ -15,6 +15,7 @@ def _map_step(partition_id, model_param, segmented_corpus, num_state, temperatur
     model.update_segmented_corpus(segmented_corpus, update_model=False)
     model_param, segmented_corpus = model.train_step()
     costs = [cost for _, cost in segmented_corpus if cost > 0]
+    random.shuffle(segmented_corpus)
     i = int(len(segmented_corpus) * temperature)
     segmented_corpus = _random_segment(_merge_morph(segmented_corpus[:i]), num_state) + \
                         segmented_corpus[i:]
