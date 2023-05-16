@@ -70,6 +70,7 @@ class StateMorphTrainer(object):
         p_loss = -1
         count = 0
         for _ in range(iteration):
+            self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
             loss, model_param = self.__step(_, model_param)
             
             # Early stopping
@@ -83,10 +84,6 @@ class StateMorphTrainer(object):
             else:
                 count = 0
                 p_loss = loss
-                
-            
-            self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
-            # client.restart()
         
         loss, segmented_corpus = self.__collect(model_param)
         new_model = BaseModel(model_param)
