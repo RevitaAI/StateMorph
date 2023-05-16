@@ -77,6 +77,8 @@ class StateMorphTrainer(object):
                 if count == self._patience:
                     print('Early stopping...')
                     break
+            elif self._current_temp < self._final_temp:
+                break
             else:
                 count = 0
                 p_loss = loss
