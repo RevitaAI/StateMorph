@@ -42,12 +42,7 @@ class StateMorphTrainer(object):
     
     def __step(self, i, num_partitions, model_param, segmented_corpus):
         print('Iteration:', i, 'Temperature:', self._current_temp)
-        partition_size = len(segmented_corpus) // num_partitions
-        partitions = [segmented_corpus[i:i+partition_size]
-                        for i in range(0, len(segmented_corpus), partition_size)]
-        temp = partitions[:-1]
-        temp[-1] += partitions[-1]
-        partitions = temp 
+        partitions = _split_partition(segmented_corpus, num_partitions)
         partitions = [(_, model_param, partition, self.num_state, self._current_temp) 
                         for _, partition in enumerate(partitions)]
         
