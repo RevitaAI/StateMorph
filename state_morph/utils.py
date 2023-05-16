@@ -102,6 +102,13 @@ def _random_segment_wrapper(partition_id, corpus, num_state) -> list:
           'Corpus size:', len(corpus), 
           'started...')
     segmented_corpus = []
+    model_param = {
+        'morph_dict': {},
+        'state_freq': {},
+        'state_size': {},
+        'state_char_counts': {},
+        'transition_freq': [],
+    }
     for word in corpus:
         segment = []
         if len(word) > 1:
@@ -117,20 +124,16 @@ def _random_segment_wrapper(partition_id, corpus, num_state) -> list:
         else:
             segment.append((word, random.randint(1, num_state)))
         segmented_corpus.append((segment, 0))
+    model = BaseModel(model_param)
+    model.update_segmented_corpus(segmented_corpus)
     print('Random Seg ID:', partition_id, 'ended...')
-    return segmented_corpus
+    return model.get_param_dict(), segmented_corpus, [0] * len(corpus)
 
 def _merge_morph(segmented_corpus) -> list:
     corpus = []
     for segment, _ in segmented_corpus:
         word = ''.join([morph for morph, _ in segment])
         corpus.append(word)
-    return corpus
-
-def _concat_list(outputs):
-    corpus = []
-    for output in outputs:
-        corpus = corpus + output
     return corpus
 
 def _split_partition(corpus, num_partitions):

@@ -1,6 +1,6 @@
 
 from .core import BaseModel
-from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _concat_list, _split_partition
+from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _split_partition
 from statistics import mean
 import dask
 from dask.distributed import get_client
@@ -25,20 +25,12 @@ class StateMorphTrainer(object):
             partitions = _split_partition(corpus, num_partitions)
             outputs = []
             for i, partition in enumerate(partitions):
-                segmented_partition = dask.delayed(_random_segment_wrapper)(i, partition, self.num_state)
-                outputs.append(segmented_partition)
-            segmented_corpus = dask.delayed(_concat_list)(outputs).compute()
-            
-            model_params = {
-                'morph_dict':  {},
-                'state_freq': {},
-                'state_size': {},
-                'state_char_counts': {},
-                'transition_freq': [],
-            }
-            model = BaseModel(model_params, **kwargs)
-            model.update_segmented_corpus(segmented_corpus)
-            self._base_model = model
+                delayed_map_step = dask.delayed(_random_segment_wrapper)(i, partition, self.num_state)
+                outputs.append(delayed_map_step)
+            delayed_reduce_step = dask.delayed(_reduce_step_wrapper)(outputs)
+            model_param, segmented_corpus, costs = delayed_reduce_step.compute()
+            self._base_model = BaseModel(model_param)
+            self._base_model.update_segmented_corpus(segmented_corpus, update_model=False)
     
     def __step(self, i, num_partitions, model_param, segmented_corpus):
         print('Iteration:', i, 'Temperature:', self._current_temp)
