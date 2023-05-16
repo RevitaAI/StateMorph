@@ -1,8 +1,9 @@
 
 from .core import BaseModel
-from .utils import _map_step, _reduce_step_wrapper, _random_segment, _merge_morph
+from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _concat_list, _split_partition
 from statistics import mean
 import random
+import math
 import dask
 from dask.distributed import get_client
 
@@ -19,9 +20,17 @@ class StateMorphTrainer(object):
     
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
         """Load corpus to state morphology model."""
+        client = get_client()
+        num_partitions = sum([_['nthreads'] for _ in client.scheduler_info()['workers'].values()])
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
-            segmented_corpus = _random_segment(corpus, self.num_state)
+            partitions = _split_partition(corpus, num_partitions)
+            outputs = []
+            for i, partition in enumerate(partitions):
+                segmented_partition = dask.delayed(_random_segment_wrapper)(i, partition, self.num_state)
+                outputs.append(segmented_partition)
+            segmented_corpus = dask.delayed(_concat_list)(outputs).compute()
+            
             model_params = {
                 'morph_dict':  {},
                 'state_freq': {},
@@ -49,20 +58,21 @@ class StateMorphTrainer(object):
             temp = partitions[:-1]
             temp[-1] += partitions[-1]
             partitions = temp 
-            partitions = [(_, model_param, partition) for _, partition in enumerate(partitions)]
+            partitions = [(_, model_param, partition, self.num_state, self._current_temp) 
+                          for _, partition in enumerate(partitions)]
             
             map_outputs = []
             for partition in partitions:
                 delayed_map_step = dask.delayed(_map_step)(*partition)
                 map_outputs.append(delayed_map_step)
             delayed_reduce_step = dask.delayed(_reduce_step_wrapper)(map_outputs)
-            model_param, segmented_corpus = delayed_reduce_step.compute()
+            model_param, segmented_corpus, costs = delayed_reduce_step.compute()
             print('Reduce step finished...')
-            loss = mean([cost for _, cost in segmented_corpus if cost > 0])
+            loss = mean(costs) if len(costs) else -1
             print('Iteration: {}, Cost: {}'.format(_, loss))
             
             # Early stopping
-            if abs(p_loss - loss) < self._delta:
+            if abs(p_loss - loss) < self._delta and loss:
                 count += 1
                 if count == self._patience:
                     print('Early stopping...')
@@ -72,11 +82,8 @@ class StateMorphTrainer(object):
                 p_loss = loss
                 
             random.shuffle(segmented_corpus)
-            i = int(len(segmented_corpus) * self._current_temp)
-            segmented_corpus = _random_segment(_merge_morph(segmented_corpus[:i]), self.num_state) + \
-                segmented_corpus[i:]
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
-            client.restart()
+            # client.restart()
             
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
