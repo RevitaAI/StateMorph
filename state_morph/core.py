@@ -70,7 +70,7 @@ class BaseModel(object):
         if update_model:
             self.update_model()
     
-    def train_step(self):
+    def train_step(self, corpus=[]):
         segmented_corpus = []
         for segment, _ in self.segmented_corpus:
             word = ''.join([morph for morph, _ in segment])
@@ -79,6 +79,10 @@ class BaseModel(object):
                 segmented_corpus.append((new_segment, new_cost))
             else:
                 segmented_corpus.append((segment, _))
+        for word in corpus:
+            new_segment, new_cost = self.search(word)
+            if new_cost != math.inf:
+                segmented_corpus.append((new_segment, new_cost))
         self.update_segmented_corpus([_ for _ in segmented_corpus if _[1] > 0])
         return self.get_param_dict(), segmented_corpus
     

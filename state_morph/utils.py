@@ -4,29 +4,27 @@ import socket
 import os
 import copy
 
-def _map_step(partition_id, model_param, segmented_corpus, num_state, temperature):
+def _map_step(partition_id, model_param, corpus, num_state, temperature):
     """Map step function for multiprocessing."""
     print('Map ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
-          'Corpus size:', len(segmented_corpus), 
+          'Corpus size:', len(corpus), 
           'started...')
     model = BaseModel(model_param)
-    model.update_segmented_corpus(segmented_corpus, update_model=False)
-    model_param, segmented_corpus = model.train_step()
+    model_param, segmented_corpus = model.train_step(corpus)
     costs = [cost for _, cost in segmented_corpus if cost > 0]
     random.shuffle(segmented_corpus)
     i = int(len(segmented_corpus) * temperature)
     segmented_corpus = _random_segment(_merge_morph(segmented_corpus[:i]), num_state) + \
                         segmented_corpus[i:]
     print('Map ID:', partition_id, 'ended...')
-    return model_param, segmented_corpus, costs
+    return model_param, costs
 
-def _reduce_step(reduced_model_param, reduced_corpus, reduced_costs, model_param, segmented_corpus, costs):
+def _reduce_step(reduced_model_param, reduced_costs, model_param, costs):
     """Reduce step function for multiprocessing."""
     
     total_model_param = reduced_model_param
-    total_corpus = reduced_corpus + segmented_corpus
     total_costs = reduced_costs + costs
     
     for k, v in model_param['morph_dict'].items():
@@ -59,7 +57,7 @@ def _reduce_step(reduced_model_param, reduced_corpus, reduced_costs, model_param
             for j in range(len(model_param['transition_freq'][i])):
                 total_model_param['transition_freq'][i][j] = total_model_param['transition_freq'][i][j] + \
                     model_param['transition_freq'][i][j]
-    return total_model_param, total_corpus, total_costs
+    return total_model_param, total_costs
                 
 def _reduce_step_wrapper(map_outputs):
     total_model_param = {
@@ -69,12 +67,10 @@ def _reduce_step_wrapper(map_outputs):
         'state_char_counts': {},
         'transition_freq': [],
     }
-    total_segmented_corpus = []
     total_costs = []
-    for model_param, segmented_corpus, costs in map_outputs:
-        total_model_param, total_segmented_corpus, total_costs =_reduce_step(
-            total_model_param, total_segmented_corpus, total_costs, model_param, segmented_corpus, costs)
-    return total_model_param, total_segmented_corpus, total_costs         
+    for model_param, costs in map_outputs:
+        total_model_param, total_costs =_reduce_step(total_model_param, total_costs, model_param, costs)
+    return total_model_param, total_costs         
 
 def _random_segment(corpus, num_state):
     segmented_corpus = []
@@ -127,7 +123,7 @@ def _random_segment_wrapper(partition_id, corpus, num_state) -> list:
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)
     print('Random Seg ID:', partition_id, 'ended...')
-    return model.get_param_dict(), segmented_corpus, [0] * len(corpus)
+    return model.get_param_dict(), [0] * len(corpus)
 
 def _merge_morph(segmented_corpus) -> list:
     corpus = []
@@ -144,3 +140,30 @@ def _split_partition(corpus, num_partitions):
     temp[-1] += partitions[-1]
     partitions = temp 
     return partitions
+
+def _map_segment(partition_id, model_param, corpus):
+    """Map step function for multiprocessing."""
+    print('Seg ID:', partition_id, 
+          'Host:', socket.gethostname(), 
+          'PID:', os.getpid(),
+          'Corpus size:', len(corpus), 
+          'started...')
+    model = BaseModel(model_param)
+    _, segmented_corpus = model.train_step(corpus)
+    costs = [cost for _, cost in segmented_corpus if cost > 0]
+    print('Map ID:', partition_id, 'ended...')
+    return segmented_corpus, costs
+
+def _reduce_segment(map_outputs):
+    """Reduce step function for multiprocessing."""
+    def _reduce(reduced_corpus, reduced_costs, segmented_corpus, costs):
+        merged_corpus = reduced_corpus + segmented_corpus
+        merged_costs = reduced_costs + costs
+        return merged_corpus, merged_costs
+    
+    
+    corpus = []
+    total_costs = []
+    for segmented_corpus, costs in map_outputs:
+        corpus, total_costs = _reduce(corpus, total_costs, segmented_corpus, costs)
+    return corpus, total_costs
