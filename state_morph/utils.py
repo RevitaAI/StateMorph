@@ -25,9 +25,9 @@ def _map_step(partition_id, model_param, segmented_corpus, num_state, temperatur
 def _reduce_step(reduced_model_param, reduced_corpus, reduced_costs, model_param, segmented_corpus, costs):
     """Reduce step function for multiprocessing."""
     
-    total_model_param = copy.deepcopy(reduced_model_param)
-    total_corpus = copy.deepcopy(reduced_corpus) + segmented_corpus
-    total_costs = copy.deepcopy(reduced_costs) + costs
+    total_model_param = reduced_model_param
+    total_corpus = reduced_corpus + segmented_corpus
+    total_costs = reduced_costs + costs
     
     for k, v in model_param['morph_dict'].items():
         if k not in total_model_param['morph_dict']:
