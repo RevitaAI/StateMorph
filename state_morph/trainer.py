@@ -40,6 +40,28 @@ class StateMorphTrainer(object):
             model.update_segmented_corpus(segmented_corpus)
             self._base_model = model
     
+    def __step(self, i, num_partitions, model_param, segmented_corpus):
+        print('Iteration:', i, 'Temperature:', self._current_temp)
+        partition_size = len(segmented_corpus) // num_partitions
+        partitions = [segmented_corpus[i:i+partition_size]
+                        for i in range(0, len(segmented_corpus), partition_size)]
+        temp = partitions[:-1]
+        temp[-1] += partitions[-1]
+        partitions = temp 
+        partitions = [(_, model_param, partition, self.num_state, self._current_temp) 
+                        for _, partition in enumerate(partitions)]
+        
+        map_outputs = []
+        for partition in partitions:
+            delayed_map_step = dask.delayed(_map_step)(*partition)
+            map_outputs.append(delayed_map_step)
+        delayed_reduce_step = dask.delayed(_reduce_step_wrapper)(map_outputs)
+        model_param, segmented_corpus, costs = delayed_reduce_step.compute()
+        print('Reduce step finished...')
+        loss = mean(costs) if len(costs) else -1
+        print('Iteration: {}, Cost: {}'.format(i, loss))
+        return loss, model_param, segmented_corpus
+    
     def train(self, iteration=10) -> BaseModel:
         """Train state morphology model."""
         model_param = self._base_model.get_param_dict()
@@ -49,25 +71,7 @@ class StateMorphTrainer(object):
         client = get_client()
         num_partitions = sum([_['nthreads'] for _ in client.scheduler_info()['workers'].values()])
         for _ in range(iteration):
-            print('Iteration:', _, 'Temperature:', self._current_temp)
-            partition_size = len(segmented_corpus) // num_partitions
-            partitions = [segmented_corpus[i:i+partition_size]
-                         for i in range(0, len(segmented_corpus), partition_size)]
-            temp = partitions[:-1]
-            temp[-1] += partitions[-1]
-            partitions = temp 
-            partitions = [(_, model_param, partition, self.num_state, self._current_temp) 
-                          for _, partition in enumerate(partitions)]
-            
-            map_outputs = []
-            for partition in partitions:
-                delayed_map_step = dask.delayed(_map_step)(*partition)
-                map_outputs.append(delayed_map_step)
-            delayed_reduce_step = dask.delayed(_reduce_step_wrapper)(map_outputs)
-            model_param, segmented_corpus, costs = delayed_reduce_step.compute()
-            print('Reduce step finished...')
-            loss = mean(costs) if len(costs) else -1
-            print('Iteration: {}, Cost: {}'.format(_, loss))
+            loss, model_param, segmented_corpus = self.__step(_, num_partitions, model_param, segmented_corpus)
             
             # Early stopping
             if abs(p_loss - loss) < self._delta and loss:
@@ -84,7 +88,8 @@ class StateMorphTrainer(object):
             
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
             # client.restart()
-            
+        self._current_temp = 0
+        loss, model_param, segmented_corpus = self.__step('FINAL', num_partitions, model_param, segmented_corpus)
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
         return new_model
