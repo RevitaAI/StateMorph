@@ -47,14 +47,15 @@ class StateMorphIO(object):
         """Read state morphology from binary file."""
         model_data = pickle.load(open(filename, 'rb'))
         model = BaseModel(model_data['model_param'], **kwargs)
-        model.update_segmented_corpus(model_data['segmented_corpus'], update_model=False)
+        if len(model_data.get('segmented_corpus') or []):
+            model.update_segmented_corpus(model_data['segmented_corpus'], update_model=False)
         return model
 
-    def write_binary_model_file(self, model, filename):
+    def write_binary_model_file(self, model, filename, no_corpus=False):
         """Write state morphology to a binary file."""
         model_data = {
             'model_param': model.get_param_dict(),
-            'segmented_corpus': model.segmented_corpus,
+            'segmented_corpus': not no_corpus and model.segmented_corpus or None,
         }
         pickle.dump(model_data, open(filename, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
 
