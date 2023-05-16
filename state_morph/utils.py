@@ -1,9 +1,15 @@
 from .core import BaseModel
 import random
+import socket
+import os
 
 def _map_step(partition_id, model_param, segmented_corpus):
     """Map step function for multiprocessing."""
-    print('Map ID:', partition_id, 'Corpus size:', len(segmented_corpus), 'started...')
+    print('Map ID:', partition_id, 
+          'Host:', socket.gethostname(), 
+          'PID:', os.getpid(),
+          'Corpus size:', len(segmented_corpus), 
+          'started...')
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus, update_model=False)
     model_param, segmented_corpus = model.train_step()

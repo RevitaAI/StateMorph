@@ -4,11 +4,11 @@ from .utils import _map_step, _reduce_step_wrapper, _random_segment, _merge_morp
 from statistics import mean
 import random
 import dask
-
+from dask.distributed import get_client
 
 
 class StateMorphTrainer(object):
-    def __init__(self, num_state, delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95, cluster=None) -> None:
+    def __init__(self, num_state, delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95) -> None:
         self.num_state = num_state
         self._delta = delta
         self._patience = patience
@@ -33,15 +33,17 @@ class StateMorphTrainer(object):
             model.update_segmented_corpus(segmented_corpus)
             self._base_model = model
     
-    def train(self, iteration=10, num_processes=5) -> BaseModel:
+    def train(self, iteration=10) -> BaseModel:
         """Train state morphology model."""
         model_param = self._base_model.get_param_dict()
         segmented_corpus = self._base_model.segmented_corpus
         p_loss = -1
         count = 0
+        client = get_client()
+        num_partitions = sum([_['nthreads'] for _ in client.scheduler_info()['workers'].values()])
         for _ in range(iteration):
             print('Iteration:', _, 'Temperature:', self._current_temp)
-            partition_size = len(segmented_corpus) // num_processes
+            partition_size = len(segmented_corpus) // num_partitions
             partitions = [segmented_corpus[i:i+partition_size]
                          for i in range(0, len(segmented_corpus), partition_size)]
             temp = partitions[:-1]
@@ -49,13 +51,12 @@ class StateMorphTrainer(object):
             partitions = temp 
             partitions = [(_, model_param, partition) for _, partition in enumerate(partitions)]
             
-            with dask.config.set(num_workers=num_processes):
-                map_outputs = []
-                for partition in partitions:
-                    delayed_map_step = dask.delayed(_map_step)(*partition)
-                    map_outputs.append(delayed_map_step)
-                delayed_reduce_step = dask.delayed(_reduce_step_wrapper)(map_outputs)
-                model_param, segmented_corpus = delayed_reduce_step.compute()
+            map_outputs = []
+            for partition in partitions:
+                delayed_map_step = dask.delayed(_map_step)(*partition)
+                map_outputs.append(delayed_map_step)
+            delayed_reduce_step = dask.delayed(_reduce_step_wrapper)(map_outputs)
+            model_param, segmented_corpus = delayed_reduce_step.compute()
             print('Reduce step finished...')
             loss = mean([cost for _, cost in segmented_corpus if cost > 0])
             print('Iteration: {}, Cost: {}'.format(_, loss))
@@ -75,6 +76,7 @@ class StateMorphTrainer(object):
             segmented_corpus = _random_segment(_merge_morph(segmented_corpus[:i]), self.num_state) + \
                 segmented_corpus[i:]
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
+            client.restart()
             
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
