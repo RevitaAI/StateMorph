@@ -19,7 +19,6 @@ class StateMorphTrainer(object):
         self._current_temp = init_temp
         self.__partitions = None
         
-    
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
         """Load corpus to state morphology model."""
         num_partitions = sum([_['nthreads'] for _ in self.client.scheduler_info()['workers'].values()])
@@ -29,18 +28,18 @@ class StateMorphTrainer(object):
             futures =  [self.client.submit(_random_segment_wrapper, i, partition, self.num_state) 
                         for i, partition in enumerate(self.__partitions)]
             results = [result for _, result in as_completed(futures, with_results=True)]
-            reduce_step = self.client.submit(_reduce_step_wrapper, results)
+            reduce_step = self.client.submit(_reduce_step_wrapper(self.num_state), results)
             self.__init_model_param, costs = reduce_step.result()
             loss = mean(costs) if len(costs) else -1
             print('Init cost:', loss)
 
     def __step(self, i, model_param):
         print('Iteration:', i, 'Temperature:', self._current_temp)
-        scattered_model_param = self.client.scatter([model_param] * len(self.__partitions))
-        futures =  [self.client.submit(_map_step, i, mp, partition, self.num_state, self._current_temp) 
+        scattered_model_param = [model_param] * len(self.__partitions) # self.client.scatter([model_param] * len(self.__partitions))
+        futures =  [self.client.submit(_map_step, i, mp, partition, self._current_temp) 
                     for i, (partition, mp) in enumerate(zip(self.__partitions, scattered_model_param))]
         results = [result for _, result in as_completed(futures, with_results=True)]
-        reduce_step = self.client.submit(_reduce_step_wrapper, results)
+        reduce_step = self.client.submit(_reduce_step_wrapper(self.num_state), results)
         model_param, costs = reduce_step.result()
         print('Reduce step finished...')
         loss = mean(costs) if len(costs) else -1

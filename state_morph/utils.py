@@ -4,7 +4,7 @@ import socket
 import os
 import copy
 
-def _map_step(partition_id, model_param, corpus, num_state, temperature):
+def _map_step(partition_id, model_param, corpus, temperature):
     """Map step function for multiprocessing."""
     print('Map ID:', partition_id, 
           'Host:', socket.gethostname(), 
@@ -12,65 +12,65 @@ def _map_step(partition_id, model_param, corpus, num_state, temperature):
           'Corpus size:', len(corpus), 
           'started...')
     model = BaseModel(model_param)
+    model.set_temperature(temperature)
     model_param, segmented_corpus = model.train_step(corpus)
     costs = [cost for _, cost in segmented_corpus if cost > 0]
-    random.shuffle(segmented_corpus)
-    i = int(len(segmented_corpus) * temperature)
-    segmented_corpus = _random_segment(_merge_morph(segmented_corpus[:i]), num_state) + \
-                        segmented_corpus[i:]
     print('Map ID:', partition_id, 'ended...')
     return model_param, costs
 
-def _reduce_step(reduced_model_param, reduced_costs, model_param, costs):
-    """Reduce step function for multiprocessing."""
-    
-    total_model_param = reduced_model_param
-    total_costs = reduced_costs + costs
-    
-    for k, v in model_param['morph_dict'].items():
-        if k not in total_model_param['morph_dict']:
-            total_model_param['morph_dict'][k] = {}
-        for vk, vv in v.items():            
-            if vk not in total_model_param['morph_dict'][k]:
-                total_model_param['morph_dict'][k][vk] = 0
-            total_model_param['morph_dict'][k][vk] = total_model_param['morph_dict'][k][vk] + vv
-    for k, v in model_param['state_freq'].items():
-        if k not in total_model_param['state_freq']:
-            total_model_param['state_freq'][k] = 0
-        total_model_param['state_freq'][k] = total_model_param['state_freq'][k] + v
-    for k, v in model_param['state_size'].items():
-        if k not in total_model_param['state_size']:
-            total_model_param['state_size'][k] = 0
-        total_model_param['state_size'][k] = total_model_param['state_size'][k] + v
-    for k, v in model_param['state_char_counts'].items():
-        if k not in total_model_param['state_char_counts']:
-            total_model_param['state_char_counts'][k] = {}
-        for vk, vv in v.items():
-            if vk not in total_model_param['state_char_counts'][k]:
-                total_model_param['state_char_counts'][k][vk] = 0
-            total_model_param['state_char_counts'][k][vk] = total_model_param['state_char_counts'][k][vk] + vv
-            
-    if not len(total_model_param['transition_freq']):
-        total_model_param['transition_freq'] = model_param['transition_freq']
-    else:
-        for i in range(len(model_param['transition_freq'])):
-            for j in range(len(model_param['transition_freq'][i])):
-                total_model_param['transition_freq'][i][j] = total_model_param['transition_freq'][i][j] + \
-                    model_param['transition_freq'][i][j]
-    return total_model_param, total_costs
+_reduce_step_wrapper = lambda num_state: lambda map_outputs: _reduce_step(map_outputs, num_state)
                 
-def _reduce_step_wrapper(map_outputs):
-    total_model_param = {
+def _reduce_step(map_outputs, num_state):
+    def _reduce(reduced_model_param, reduced_costs, model_param, costs):
+        """Reduce step function for multiprocessing."""
+        total_model_param = reduced_model_param
+        total_costs = reduced_costs + costs
+        
+        for k, v in model_param['morph_dict'].items():
+            if k not in total_model_param['morph_dict']:
+                total_model_param['morph_dict'][k] = {}
+            for vk, vv in v.items():            
+                if vk not in total_model_param['morph_dict'][k]:
+                    total_model_param['morph_dict'][k][vk] = 0
+                total_model_param['morph_dict'][k][vk] = total_model_param['morph_dict'][k][vk] + vv
+        for k, v in model_param['state_freq'].items():
+            if k not in total_model_param['state_freq']:
+                total_model_param['state_freq'][k] = 0
+            total_model_param['state_freq'][k] = total_model_param['state_freq'][k] + v
+        for k, v in model_param['state_size'].items():
+            if k not in total_model_param['state_size']:
+                total_model_param['state_size'][k] = 0
+            total_model_param['state_size'][k] = total_model_param['state_size'][k] + v
+        for k, v in model_param['state_char_counts'].items():
+            if k not in total_model_param['state_char_counts']:
+                total_model_param['state_char_counts'][k] = {}
+            for vk, vv in v.items():
+                if vk not in total_model_param['state_char_counts'][k]:
+                    total_model_param['state_char_counts'][k][vk] = 0
+                total_model_param['state_char_counts'][k][vk] = total_model_param['state_char_counts'][k][vk] + vv
+                
+        if not len(total_model_param['transition_freq']):
+            total_model_param['transition_freq'] = model_param['transition_freq']
+        else:
+            for i in range(len(model_param['transition_freq'])):
+                for j in range(len(model_param['transition_freq'][i])):
+                    total_model_param['transition_freq'][i][j] = total_model_param['transition_freq'][i][j] + \
+                        model_param['transition_freq'][i][j]
+        return total_model_param, total_costs
+    
+    
+    _model_param = {
+        'num_state': num_state + 2,
         'morph_dict': {},
-        'state_freq': {},
-        'state_size': {},
-        'state_char_counts': {},
-        'transition_freq': [],
+        'state_freq': {k : 0 for k in range(num_state + 2)},
+        'state_size': {k : 0 for k in range(num_state + 2)},
+        'state_char_counts': {k : {} for k in range(num_state + 2)},
+        'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
     }
-    total_costs = []
+    _costs = []
     for model_param, costs in map_outputs:
-        total_model_param, total_costs =_reduce_step(total_model_param, total_costs, model_param, costs)
-    return total_model_param, total_costs         
+        _model_param, _costs =_reduce(_model_param, _costs, model_param, costs)
+    return _model_param, _costs         
 
 def _random_segment(corpus, num_state):
     segmented_corpus = []
@@ -99,11 +99,12 @@ def _random_segment_wrapper(partition_id, corpus, num_state) -> list:
           'started...')
     segmented_corpus = []
     model_param = {
+        'num_state': num_state + 2,
         'morph_dict': {},
-        'state_freq': {},
-        'state_size': {},
-        'state_char_counts': {},
-        'transition_freq': [],
+        'state_freq': {k : 0 for k in range(num_state + 2)},
+        'state_size': {k : 0 for k in range(num_state + 2)},
+        'state_char_counts': {k : {} for k in range(num_state + 2)},
+        'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
     }
     for word in corpus:
         segment = []
