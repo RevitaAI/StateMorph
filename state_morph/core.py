@@ -146,7 +146,7 @@ class BaseModel(object):
                            for i in range(self.num_state)]
         
         
-    def compute_encoding_cost(self, segment: list) -> float:
+    def compute_encoding_cost(self) -> float:
         # PrequentialCost
         cost = 0
         cost += self.__get_transitions_code_length()
