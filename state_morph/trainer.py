@@ -82,15 +82,13 @@ class StateMorphTrainer(object):
                 # Early stopping
                 if abs(p_loss - loss) < self._delta and loss:
                     count += 1
-                    self.__checkpoint(BaseModel(model_param), 'ITER_{}_{}'.format(_, loss))
                     if count == self._patience:
                         print('Early stopping...')
                         break
                 elif self._current_temp < self._final_temp:
                     break
                 else:
-                    if _ % 10 == 0:
-                        self.__checkpoint(BaseModel(model_param), 'ITER_{}_{}'.format(_, loss))
+                    self.__checkpoint(BaseModel(model_param), 'ITER_{}_{}'.format(_, loss))
                     count = 0
                     p_loss = loss
         except Exception:
