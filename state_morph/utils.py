@@ -65,7 +65,7 @@ def _reduce_step(map_outputs, num_state):
         'state_char_counts': {k : {} for k in range(num_state + 2)},
         'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
     }
-    
+
     for model_param in map_outputs:
         _model_param =_reduce(_model_param, model_param)
     _cost = BaseModel(_model_param).compute_encoding_cost()
@@ -157,14 +157,9 @@ def _map_segment(partition_id, model_param, corpus):
 
 def _reduce_segment(map_outputs):
     """Reduce step function for multiprocessing."""
-    def _reduce(reduced_corpus, reduced_costs, segmented_corpus, costs):
-        merged_corpus = reduced_corpus + segmented_corpus
-        merged_costs = reduced_costs + costs
-        return merged_corpus, merged_costs
-    
+    _reduce = lambda reduced_corpus, segmented_corpus: reduced_corpus + segmented_corpus
     
     corpus = []
-    total_costs = []
     for segmented_corpus, costs in map_outputs:
-        corpus, total_costs = _reduce(corpus, total_costs, segmented_corpus, costs)
-    return corpus, total_costs
+        corpus = _reduce(corpus, segmented_corpus)
+    return corpus

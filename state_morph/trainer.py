@@ -23,11 +23,11 @@ class StateMorphTrainer(object):
         self.__model_name = model_name
         self.__io = StateMorphIO(model_path + '/' + model_name)
         
-    def __checkpoint(self, model, iteration):
-        print('Save checkpoint:', iteration)
-        self.__io.write_binary_model_file(model, '{}_{}.bin'.format(self.__model_name, iteration), no_corpus=True)
+    def __checkpoint(self, model, iteration, loss):
+        print('Save checkpoint:', iteration, 'Loss:', loss)
+        self.__io.write_binary_model_file(model, '{}_{}_{:.4f}.bin'.format(self.__model_name, iteration, loss), no_corpus=True)
         if iteration == 'FINAL':
-            self.__io.write_segmented_file(model, '{}_{}.txt'.format(self.__model_name, iteration))
+            self.__io.write_segmented_file(model, '{}_{}_{:.4f}.txt'.format(self.__model_name, iteration, loss))
         
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
         """Load corpus to state morphology model."""
@@ -55,17 +55,15 @@ class StateMorphTrainer(object):
         return loss, model_param
     
     def __collect(self, model_param):
-        print('Final iteration started...')
+        print('Final segmenting started...')
         scattered_model_param = self.client.scatter([model_param] * len(self.__partitions))
         futures =  [self.client.submit(_map_segment, i, mp, partition) 
                     for i, (partition, mp) in enumerate(zip(self.__partitions, scattered_model_param))]
         results = [result for _, result in as_completed(futures, with_results=True)]
         reduce_step = self.client.submit(_reduce_segment, results)
-        segmented_corpus, costs = reduce_step.result()
-        print('Reduce step finished...')
-        loss = mean(costs) if len(costs) else -1
-        print('Final iteration done, Cost: {}'.format(loss))
-        return loss, segmented_corpus
+        segmented_corpus = reduce_step.result()
+        print('Final segmenting finished...')
+        return segmented_corpus
     
     
     def train(self, iteration=10) -> BaseModel:
@@ -74,7 +72,6 @@ class StateMorphTrainer(object):
         p_loss = -1
         count = 0
         try:
-            self.__checkpoint(BaseModel(model_param), 'INIT')
             for _ in range(iteration):
                 self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
                 loss, model_param = self.__step(_, model_param)
@@ -88,14 +85,15 @@ class StateMorphTrainer(object):
                 elif self._current_temp < self._final_temp:
                     break
                 else:
-                    self.__checkpoint(BaseModel(model_param), 'ITER_{}_{}'.format(_, loss))
+                    if p_loss > loss:
+                        self.__checkpoint(BaseModel(model_param), _, loss)
                     count = 0
                     p_loss = loss
         except Exception:
             print('Fallback...')
         
-        loss, segmented_corpus = self.__collect(model_param)
+        segmented_corpus = self.__collect(model_param)
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
-        self.__checkpoint(new_model, 'FINAL')
+        self.__checkpoint(new_model, 'FINAL', new_model.compute_encoding_cost())
         return new_model
