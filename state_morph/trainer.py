@@ -2,6 +2,7 @@
 from .core import BaseModel
 from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _split_partition, \
     _map_segment, _reduce_segment
+from .io import StateMorphIO
 from statistics import mean
 import dask
 import copy
@@ -9,7 +10,8 @@ from dask.distributed import as_completed
 
 
 class StateMorphTrainer(object):
-    def __init__(self, client, num_state, delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95) -> None:
+    def __init__(self, client, num_state, model_path, model_name,
+                 delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95) -> None:
         self.client = client
         self.num_state = num_state
         self._delta = delta
@@ -18,6 +20,14 @@ class StateMorphTrainer(object):
         self._alpha = alpha
         self._current_temp = init_temp
         self.__partitions = None
+        self.__model_name = model_name
+        self.__io = StateMorphIO(model_path + '/' + model_name)
+        
+    def __checkpoint(self, model, iteration):
+        print('Save checkpoint:', iteration)
+        self.__io.write_binary_model_file(model, '{}_{}.bin'.format(self.__model_name, iteration), no_corpus=True)
+        if iteration == 'FINAL':
+            self.__io.write_segmented_file(model, '{}_{}.txt'.format(self.__model_name, iteration))
         
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
         """Load corpus to state morphology model."""
@@ -63,23 +73,31 @@ class StateMorphTrainer(object):
         model_param = copy.deepcopy(self.__init_model_param)
         p_loss = -1
         count = 0
-        for _ in range(iteration):
-            self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
-            loss, model_param = self.__step(_, model_param)
-            
-            # Early stopping
-            if abs(p_loss - loss) < self._delta and loss:
-                count += 1
-                if count == self._patience:
-                    print('Early stopping...')
+        try:
+            self.__checkpoint(BaseModel(model_param), 'INIT')
+            for _ in range(iteration):
+                self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
+                loss, model_param = self.__step(_, model_param)
+                
+                # Early stopping
+                if abs(p_loss - loss) < self._delta and loss:
+                    count += 1
+                    self.__checkpoint(BaseModel(model_param), 'ITER_{}'.format(_))
+                    if count == self._patience:
+                        print('Early stopping...')
+                        break
+                elif self._current_temp < self._final_temp:
                     break
-            elif self._current_temp < self._final_temp:
-                break
-            else:
-                count = 0
-                p_loss = loss
+                else:
+                    if _ % 10 == 0:
+                        self.__checkpoint(BaseModel(model_param), 'ITER_{}'.format(_))
+                    count = 0
+                    p_loss = loss
+        except Exception:
+            print('Fallback...')
         
         loss, segmented_corpus = self.__collect(model_param)
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
+        self.__checkpoint(new_model, 'FINAL')
         return new_model

@@ -6,13 +6,14 @@ try:
 except ImportError:
     import pickle
 import re
+import os
 
 class StateMorphIO(object):
     """Class for reading and writing state morphologies."""
 
-    def __init__(self):
+    def __init__(self, base_path='./'):
         """Initialize StateMorphIO object."""
-        pass
+        self.base_path = os.path.abspath(base_path)
 
     
     def load_model_from_text_files(self, segmented_file: str, **kwargs) -> None:
@@ -25,12 +26,13 @@ class StateMorphIO(object):
             'transition_freq': [],
         }
         model = BaseModel(model_params, **kwargs)
-        self.__load_model_file(model, segmented_file)
+        self.__load_model_file(model, os.path.join(self.base_path, segmented_file))
         return model
 
     def write_segmented_file(self, model, segmented_file):
         """Write state morphology to a file."""
-        with open(segmented_file, 'w', encoding='utf-8') as f:
+        os.makedirs(self.base_path, exist_ok=True)
+        with open(os.path.join(self.base_path, segmented_file), 'w', encoding='utf-8') as f:
             word2segment = {}
             for segments, cost in model.segmented_corpus:
                 tmp = []
@@ -45,7 +47,7 @@ class StateMorphIO(object):
         
     def load_model_from_binary_file(self, filename: str, **kwargs) -> None:
         """Read state morphology from binary file."""
-        model_data = pickle.load(open(filename, 'rb'))
+        model_data = pickle.load(open(os.path.join(self.base_path, filename), 'rb'))
         model = BaseModel(model_data['model_param'], **kwargs)
         if len(model_data.get('segmented_corpus') or []):
             model.update_segmented_corpus(model_data['segmented_corpus'], update_model=False)
@@ -53,11 +55,12 @@ class StateMorphIO(object):
 
     def write_binary_model_file(self, model, filename, no_corpus=False):
         """Write state morphology to a binary file."""
+        os.makedirs(self.base_path, exist_ok=True)
         model_data = {
             'model_param': model.get_param_dict(),
             'segmented_corpus': not no_corpus and model.segmented_corpus or None,
         }
-        pickle.dump(model_data, open(filename, 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(model_data, open(os.path.join(self.base_path, filename), 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
 
     
     

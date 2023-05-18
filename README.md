@@ -14,16 +14,14 @@ import shutil
 
 cluster = LocalCluster(n_workers=n_workers) 
 client = Client(cluster)
-trainer = StateMorphTrainer(
-    client, n_state, init_temp=init_temp, final_temp=final_temp, alpha=alpha)
-client.upload_file('state_morph.zip')
+trainer = StateMorphTrainer(client, n_state, model_path, model_name, 
+                            init_temp=init_temp, final_temp=final_temp, alpha=alpha)
+client.upload_file('state_morph.zip') # Upload module so that dask can import it in workers
 trainer.load_raw_corpus(wordlist)
 model = trainer.train(n_epoch)
 client.close()
 cluster.close()
-# Save models
-StateMorphIO().write_binary_model_file(model, model_path+'.bin', no_corpus=True)
-StateMorphIO().write_segmented_file(model, model_path+'.txt')
+
 ```
 
 ## Training with cluster
@@ -85,21 +83,16 @@ if __name__ ==  '__main__':
                              scheduler_options={"port": 0, "dashboard_address": ":8797"})
     
     shutil.make_archive('state_morph', 'zip', './dummy')
-    
+    wordlist_name = os.path.splitext(os.path.basename(args.wordlist))[0]
+    model_name = '{}_{}_{}_{}_{}'.format(wordlist_name, args.n_state, args.init_temp, args.final_temp, args.alpha)
     client = Client(cluster)
-    trainer = StateMorphTrainer(
-        client, args.n_state, init_temp=args.init_temp, final_temp=args.final_temp, alpha=args.alpha)
+    trainer = StateMorphTrainer(client, args.n_state, args.model_path, model_name, 
+                                init_temp=args.init_temp, final_temp=args.final_temp, alpha=args.alpha)
     client.upload_file('state_morph.zip')
+    os.remove('state_morph.zip')
     trainer.load_raw_corpus(os.path.abspath(args.wordlist))
     model = trainer.train(args.n_epoch)
     client.close()
     cluster.close()
-    os.remove('state_morph.zip')
-    wordlist_name = os.path.splitext(os.path.basename(args.wordlist))[0]
-    model_name = '{}_{}_{}_{}_{}'.format(wordlist_name, args.n_state, args.init_temp, args.final_temp, args.alpha)
-    model_path = os.path.join(os.path.abspath(args.model_path), model_name)
-    
-    StateMorphIO().write_binary_model_file(model, model_path+'.bin', no_corpus=True)
-    StateMorphIO().write_segmented_file(model, model_path+'.txt')
 
 ```

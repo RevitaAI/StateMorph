@@ -240,7 +240,7 @@ class BaseModel(object):
         # sumWithPriors += (constants.customCharsetIndex.length + 1) * constants.getPrior();
         sum_with_priors += (len(self.charset) + 1) * BaseModel.PRIOR        
         # double addedToSum = constants.allMorphs[morphId].length + 1;
-        added_to_sum = len(self.morph_dict) + 1
+        added_to_sum = len(morph) + 1
         # double posPart = AmorphousMath.computeLogGammaChange(sumWithPriors, addedToSum);
         pos_part = __compute_log_gamma_change(sum_with_priors, added_to_sum)
         # double negPart = 0.0;

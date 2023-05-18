@@ -14,17 +14,15 @@ def _map_step(partition_id, model_param, corpus, temperature):
     model = BaseModel(model_param)
     model.set_temperature(temperature)
     model_param, segmented_corpus = model.train_step(corpus)
-    costs = [cost for _, cost in segmented_corpus if cost > 0]
     print('Map ID:', partition_id, 'ended...')
-    return model_param, costs
+    return model_param
 
 _reduce_step_wrapper = lambda num_state: lambda map_outputs: _reduce_step(map_outputs, num_state)
                 
 def _reduce_step(map_outputs, num_state):
-    def _reduce(reduced_model_param, reduced_costs, model_param, costs):
+    def _reduce(reduced_model_param, model_param):
         """Reduce step function for multiprocessing."""
         total_model_param = reduced_model_param
-        total_costs = reduced_costs + costs
         
         for k, v in model_param['morph_dict'].items():
             if k not in total_model_param['morph_dict']:
@@ -56,7 +54,7 @@ def _reduce_step(map_outputs, num_state):
                 for j in range(len(model_param['transition_freq'][i])):
                     total_model_param['transition_freq'][i][j] = total_model_param['transition_freq'][i][j] + \
                         model_param['transition_freq'][i][j]
-        return total_model_param, total_costs
+        return total_model_param
     
     
     _model_param = {
@@ -67,10 +65,11 @@ def _reduce_step(map_outputs, num_state):
         'state_char_counts': {k : {} for k in range(num_state + 2)},
         'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
     }
-    _costs = []
-    for model_param, costs in map_outputs:
-        _model_param, _costs =_reduce(_model_param, _costs, model_param, costs)
-    return _model_param, _costs         
+    
+    for model_param in map_outputs:
+        _model_param =_reduce(_model_param, model_param)
+    _cost = BaseModel(_model_param).compute_encoding_cost()
+    return _model_param, _cost        
 
 def _random_segment(corpus, num_state):
     segmented_corpus = []
@@ -124,7 +123,7 @@ def _random_segment_wrapper(partition_id, corpus, num_state) -> list:
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)
     print('Random Seg ID:', partition_id, 'ended...')
-    return model.get_param_dict(), [0] * len(corpus)
+    return model.get_param_dict()
 
 def _merge_morph(segmented_corpus) -> list:
     corpus = []
@@ -138,7 +137,8 @@ def _split_partition(corpus, num_partitions):
     partitions = [corpus[i:i+partition_size]
                     for i in range(0, len(corpus), partition_size)]
     temp = partitions[:-1]
-    temp[-1] += partitions[-1]
+    if num_partitions > 1:
+        temp[-1] += partitions[-1]
     partitions = temp 
     return partitions
 
