@@ -29,8 +29,7 @@ class StateMorphTrainer(object):
                         for i, partition in enumerate(self.__partitions)]
             results = [result for _, result in as_completed(futures, with_results=True)]
             reduce_step = self.client.submit(_reduce_step_wrapper(self.num_state), results)
-            self.__init_model_param, costs = reduce_step.result()
-            loss = mean(costs) if len(costs) else -1
+            self.__init_model_param, loss = reduce_step.result()
             print('Init cost:', loss)
 
     def __step(self, i, model_param):
@@ -40,9 +39,8 @@ class StateMorphTrainer(object):
                     for i, (partition, mp) in enumerate(zip(self.__partitions, scattered_model_param))]
         results = [result for _, result in as_completed(futures, with_results=True)]
         reduce_step = self.client.submit(_reduce_step_wrapper(self.num_state), results)
-        model_param, costs = reduce_step.result()
+        model_param, loss = reduce_step.result()
         print('Reduce step finished...')
-        loss = mean(costs) if len(costs) else -1
         print('Iteration: {}, Cost: {}'.format(i, loss))
         return loss, model_param
     

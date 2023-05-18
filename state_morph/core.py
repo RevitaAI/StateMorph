@@ -63,12 +63,11 @@ class BaseModel(object):
         self.update_costs()
 
     def update_costs(self):
-        self.morph_list = {k: {} for k in range(1, self.num_state - 1)}
+        self.morph_list = {k: set() for k in range(1, self.num_state - 1)}
         for morph, state_dict in self.morph_dict.items():
             for state, _ in state_dict.items():
                 self.morph_list[state].add(morph)
         self.charset = {_ for morph in self.morph_dict.keys() for _ in morph}
-        self.lexicon_costs = [self.__get_lexicon_cost(_) for _ in range(1, self.num_state)]
         self.transition_costs = [[self.__get_transition_cost(i, j) 
                                   for j in range(self.num_state)] 
                                  for i in range(self.num_state)]
@@ -149,25 +148,33 @@ class BaseModel(object):
     def compute_encoding_cost(self) -> float:
         # PrequentialCost
         cost = 0
-        cost += self.__get_transitions_code_length()
-        cost += sum([self.lexicon_costs[_] for _ in range(1, self.num_state - 1)])
-        cost += self.__get_emission_cost_for_lexicon()
+        cost += self.__get_transition_encoding_cost()
+        cost += sum([self.__get_lexicon_cost(_) for _ in range(1, self.num_state)])
+        cost += self.__get_emission_encoding_cost()
         return cost
 
     def search(self, word: str) -> tuple :
-        dp_matrix = [[{'state': state, 'char_index': char_index, 'cost': math.inf, 'previous': None, 'morph': ''} 
-                      for state in range(self.num_state)] 
-                    for char_index in range(len(word) + 2)]
+        to_be_segmented = '$' + word + '#'
+        dp_matrix = [[{
+            'state': state, 
+            'char_index': char_index, 
+            'cost': 0 if char_index ==0 and state == 0 else math.inf, 
+            'previous': None, 
+            'morph': to_be_segmented[char_index]
+        } for char_index in range(len(word) + 2)] for state in range(self.num_state)]
         dp_matrix[0][0]['cost'] = 0
-        for row in range(1, len(word) + 2):
-            for col in range(1, self.num_state):
-                if (row != len(word) + 1 and col != self.num_state - 1) or \
-                   (row == len(word) + 1 and col == self.num_state - 1):
-                    current_cell = dp_matrix[row][col]
-                    search_space = [cell for rows in dp_matrix[max(row - BaseModel.MORPH_SIZE, 0): row] for cell in rows[: -1]]
+        for state in range(1, self.num_state):
+            for char_idx in range(1, len(word) + 2):
+                searching_middle = char_idx != len(word) + 1 and state != self.num_state - 1
+                searching_end = char_idx == len(word) + 1 and state == self.num_state - 1
+                if searching_middle or searching_end:
+                    current_cell = dp_matrix[state][char_idx]
+                    search_space = [cell 
+                                    for chars in dp_matrix[int(searching_end): -1] 
+                                    for cell in chars[max(char_idx - BaseModel.MORPH_SIZE, int(searching_end)): char_idx]]
                     costs = []
                     for idx, previous_cell in enumerate(search_space):
-                        morph = word[previous_cell['char_index']: current_cell['char_index']]
+                        morph = to_be_segmented[previous_cell['char_index'] + 1: current_cell['char_index'] + 1]
                         cost = previous_cell['cost']
                         cost += self.transition_costs[previous_cell['state']][current_cell['state']]
                         cost += self.__get_emission_cost(morph, current_cell['state'])
@@ -178,22 +185,83 @@ class BaseModel(object):
                     idx, cost = random.choice(candidates)
                     current_cell['previous'] = search_space[idx]
                     current_cell['cost'] = cost
-                    current_cell['morph'] = word[search_space[idx]['char_index']: current_cell['char_index']]
+                    if not searching_end:
+                        current_cell['morph'] = to_be_segmented[search_space[idx]['char_index'] + 1: current_cell['char_index'] + 1]
         p = dp_matrix[-1][-1]
         cost = p['cost']
-        reversed_path = [p]
+        reversed_path = []
         while p['previous'] is not None:
             reversed_path.append(p)
             p = p['previous']
         segment = list(map(lambda x: (x['morph'], x['state']), reversed(reversed_path)))[:-1]
         return segment, cost
 
+    def debug_dp_matrix(self, word, dp_matrix, segment):
+        to_be_segmented = '$' + word + '#'
+        print('-------------------')
+        print(','.join(to_be_segmented))
+        for row in dp_matrix:
+            print(','.join(['{}:{:.3f}:{:.3f}'.format(
+                col['morph'], col['cost'],( col['previous'] or {}).get('cost', math.inf))  for col in row]))
+        print('-------------------')
+        print(segment)
+
     def debug_segment(self, word:str, expected_segment: list, expected_cost: float) -> None:
         segment, cost = self.search(word)
         print('If same segment', len(segment)== len(expected_segment) and all(i==j for i, j in zip(segment, expected_segment)))
         print('Cost prec error:', float(format((cost - expected_cost) / expected_cost, '.5f')), '%')
 
-
+    def __get_add_morph_to_state_cost(self, state, morph):
+        def __compute_log_gamma_change(count, added):
+            # double result = 0.0;
+            # for(double x = count ; x < count+added ; x++){
+            #     result += log2(x);
+            # }
+            # return result;
+            result = 0
+            i = count
+            while i < count + added:
+                result += math.log2(i)
+                i += 1
+            return result
+        
+        # Map<Byte, Integer> currentCharCounts = lexicon.getState(state).getSymbolMap();
+        char_count = self.state_char_counts[state]
+        # Map<Byte, Integer> mapForMorph = Arrays.stream(ArrayUtils.toObject(constants.allMorphs[morphId])).collect(
+            # Collectors.toMap((Byte b) -> b, (Byte b) -> 1, (Integer x1, Integer x2) -> x1 + x2));
+        map_for_morph = {}    
+        for m in morph:
+            map_for_morph[m] = map_for_morph.get(m, 0) + 1        
+        # double sumWithPriors = 0.0;
+        # if (!lexicon.getMorphList(state).isEmpty()) {
+        #     sumWithPriors = lexicon.getMorphList(state).stream().map((Morphable m) -> m.getLength() + 1).reduce(Integer::sum).get();
+        # }
+        sum_with_priors = sum([len(morph) + 1 for morph in self.morph_list.get(state, [])])
+        # sumWithPriors += (constants.customCharsetIndex.length + 1) * constants.getPrior();
+        sum_with_priors += (len(self.charset) + 1) * BaseModel.PRIOR        
+        # double addedToSum = constants.allMorphs[morphId].length + 1;
+        added_to_sum = len(self.morph_dict) + 1
+        # double posPart = AmorphousMath.computeLogGammaChange(sumWithPriors, addedToSum);
+        pos_part = __compute_log_gamma_change(sum_with_priors, added_to_sum)
+        # double negPart = 0.0;
+        # for (Byte b : mapForMorph.keySet()) {
+        #     double countWithPrior = currentCharCounts.getOrDefault(b, 2) + constants.getPrior();
+        #     double added = mapForMorph.get(b);
+        #     negPart += AmorphousMath.computeLogGammaChange(countWithPrior, added);
+        # }
+        neg_part = sum([
+            __compute_log_gamma_change(char_count.get(char, 2) + BaseModel.PRIOR, added)
+            for char, added in map_for_morph.items()
+        ])
+        # double countWithPrior = lexicon.getMorphList(state).size() + constants.getPrior();
+        count_with_prior = self.state_size[state] + BaseModel.PRIOR
+        # double added = 1;
+        # negPart += AmorphousMath.computeLogGammaChange(countWithPrior, added);
+        neg_part += __compute_log_gamma_change(count_with_prior, 1)
+        # double newWay = posPart - negPart;
+        # return newWay;
+        return pos_part - neg_part
+        
     def __get_emission_cost(self, morph: str, state: int) -> float:
         if morph == '' and state == self.num_state - 1:
             return 0
@@ -204,6 +272,8 @@ class BaseModel(object):
             # Roman,: 5.0 could be  the closest power of two to size of alphabet
             cost = - math.log2(BaseModel.PRIOR / 
                                (self.state_freq.get(state, 0) + (self.state_size[state] + 1) * BaseModel.PRIOR))
+            # cost += costOfAddingMorphToClass(state, morph)
+            cost += self.__get_add_morph_to_state_cost(state, morph)
         else:
             # d = morph.getFrequency() + constants.getPrior();
             d = state_dict[state] + BaseModel.PRIOR
@@ -228,7 +298,8 @@ class BaseModel(object):
             state_lex_cost = self.__get_cost([])
         else:
             state_lex_cost = self.__get_cost(list(self.state_char_counts[state_id].values()))
-        #we add one because Elias coding works only for positive integers but we deal with nonnegative integers.
+        #we add one because Elias coding 
+        # works only for positive integers but we deal with nonnegative integers.
         #double costOfCodingSize = amorphous.math.AmorphousMath.computeEliasOmegaLength(classSize + 1); 
         cost_of_coding_size = self.__compute_elias_omega_length(self.state_size[state_id] + 1)
         return cost_of_coding_size + state_lex_cost
@@ -253,15 +324,13 @@ class BaseModel(object):
 
     def __compute_elias_omega_length(self, x:int) -> float:
         length = 0
-        i = 1
         lambda_i_number = math.floor(math.log2(x))
-        while i >= 1 and lambda_i_number > 0:
+        while lambda_i_number > 0:
             length += lambda_i_number + 1
-            i += 1
             lambda_i_number = math.floor(math.log2(lambda_i_number))
         return length
 
-    def __get_transitions_code_length(self) -> float:
+    def __get_transition_encoding_cost(self) -> float:
         length = 0
         
         for cfrom in range(self.num_state - 1):
@@ -280,7 +349,7 @@ class BaseModel(object):
             length -= math.lgamma(sum_of_priors) / BaseModel.LOG_2
         return length
     
-    def __get_emission_cost_for_lexicon(self):
+    def __get_emission_encoding_cost(self):
         emit_cost = 0
         for c in range(1, self.num_state - 1):
             counts = [self.morph_dict[morph][c]  for morph in self.morph_list[c]]
