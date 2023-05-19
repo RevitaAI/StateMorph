@@ -258,15 +258,8 @@ class BaseModel(object):
         segment, cost = self.search(word)
         print('If same segment', len(segment)== len(expected_segment) and all(i==j for i, j in zip(segment, expected_segment)))
         print('Cost prec error:', float(format((cost - expected_cost) / expected_cost, '.5f')), '%')
+    
 
-    def __get_add_morph_to_state_cost(self, state, morph):
-        pos_part = self.__add_morph_pos[(state, len(morph))]
-        # Map<Byte, Integer> mapForMorph = Arrays.stream(ArrayUtils.toObject(constants.allMorphs[morphId])).collect(
-            # Collectors.toMap((Byte b) -> b, (Byte b) -> 1, (Integer x1, Integer x2) -> x1 + x2));   
-        neg_part = sum(map(lambda x: self.__add_morph_neg_1[(state, x[0], x[1])], Counter(morph).items()))
-        neg_part += self.__add_morph_neg_2[state]
-        return pos_part - neg_part
-        
     def __get_emission_cost(self, morph: str, state: int) -> float:
         if state == self.num_state - 1:
             return 0
@@ -280,7 +273,12 @@ class BaseModel(object):
             cost = - math.log2(BaseModel.PRIOR / 
                                (self.state_freq.get(state, 0) + (self.__state_size[state] + 1) * BaseModel.PRIOR))
             # cost += costOfAddingMorphToClass(state, morph)
-            cost += self.__get_add_morph_to_state_cost(state, morph)
+            
+            pos_part = self.__add_morph_pos[(state, len(morph))]
+            neg_part = sum(map(lambda x: self.__add_morph_neg_1[(state, x[0], x[1])], Counter(morph).items()))
+            neg_part += self.__add_morph_neg_2[state]
+            
+            cost += pos_part - neg_part
         else:
             # d = morph.getFrequency() + constants.getPrior();
             d = state_dict[state] + BaseModel.PRIOR
