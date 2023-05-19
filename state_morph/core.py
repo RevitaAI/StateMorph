@@ -107,8 +107,7 @@ class BaseModel(object):
             for morph_size in range(BaseModel.MORPH_SIZE + 1)
         }
                 
-        # Map<Byte, Integer> mapForMorph = Arrays.stream(ArrayUtils.toObject(constants.allMorphs[morphId])).collect(
-            # Collectors.toMap((Byte b) -> b, (Byte b) -> 1, (Integer x1, Integer x2) -> x1 + x2));   
+        
         # double negPart = 0.0;
         # for (Byte b : mapForMorph.keySet()) {
         #     double countWithPrior = currentCharCounts.getOrDefault(b, 2) + constants.getPrior();
@@ -121,7 +120,7 @@ class BaseModel(object):
         
         self.__add_morph_neg = {
             (state, char, count): self.__compute_log_gamma_change(
-                self.__state2char2counts[state].get(char[0], 2) + BaseModel.PRIOR, count) + 
+                self.__state2char2counts[state].get(char, 2) + BaseModel.PRIOR, count) + 
                 self.__compute_log_gamma_change(self.__state_size[state] + BaseModel.PRIOR, 1)
             for state in range(1, self.num_state - 1)
             for char in self.__charset
@@ -254,6 +253,8 @@ class BaseModel(object):
 
     def __get_add_morph_to_state_cost(self, state, morph):
         pos_part = self.__add_morph_pos[(state, len(morph))]
+        # Map<Byte, Integer> mapForMorph = Arrays.stream(ArrayUtils.toObject(constants.allMorphs[morphId])).collect(
+            # Collectors.toMap((Byte b) -> b, (Byte b) -> 1, (Integer x1, Integer x2) -> x1 + x2));   
         neg_part = sum(map(lambda x: self.__add_morph_neg[(state, x[0], x[1])], 
                            Counter(morph).items()))
         return pos_part - neg_part
@@ -266,6 +267,8 @@ class BaseModel(object):
             # morph is not yet emitted from this class: add it:
             # We are not sure what this means. It seems  to produce a reasonable freq, estimate in marginal cases
             # Roman,: 5.0 could be  the closest power of two to size of alphabet
+            # int morphLength = constants.allMorphs[morphId].length;
+            # cost = - AmorphousMath.log2(constants.getPrior() / (s.classFrequency() + (s.classSize() + 1.0) * constants.getPrior()));
             cost = - math.log2(BaseModel.PRIOR / 
                                (self.state_freq.get(state, 0) + (self.__state_size[state] + 1) * BaseModel.PRIOR))
             # cost += costOfAddingMorphToClass(state, morph)
