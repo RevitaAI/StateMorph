@@ -1,5 +1,7 @@
 import math
 import random
+from collections import Counter
+import numpy as np
 
 class BaseModel(object):
     PRIOR = 0.5
@@ -64,9 +66,12 @@ class BaseModel(object):
 
     def update_costs(self):
         self.morph_list = {k: set() for k in range(1, self.num_state - 1)}
+        self.__state_char_size = {k: 0 for k in range(self.num_state)}
         for morph, state_dict in self.morph_dict.items():
             for state, _ in state_dict.items():
                 self.morph_list[state].add(morph)
+                # lexicon.getMorphList(state).stream().map((Morphable m) -> m.getLength() + 1).reduce(Integer::sum).get();
+                self.__state_char_size[state] += len(morph) + 1
         self.charset = {_ for morph in self.morph_dict.keys() for _ in morph}
         self.transition_costs = [[self.__get_transition_cost(i, j) 
                                   for j in range(self.num_state)] 
@@ -212,47 +217,36 @@ class BaseModel(object):
         print('Cost prec error:', float(format((cost - expected_cost) / expected_cost, '.5f')), '%')
 
     def __get_add_morph_to_state_cost(self, state, morph):
-        def __compute_log_gamma_change(count, added):
-            # double result = 0.0;
-            # for(double x = count ; x < count+added ; x++){
-            #     result += log2(x);
-            # }
-            # return result;
-            result = 0
-            i = count
-            while i < count + added:
-                result += math.log2(i)
-                i += 1
-            return result
+        # double result = 0.0;
+        # for(double x = count ; x < count+added ; x++){
+        #     result += log2(x);
+        # }
+        # return result;
+        __compute_log_gamma_change = lambda count, added: np.log2(np.arange(count, count + added, 1)).sum()
         
         # Map<Byte, Integer> currentCharCounts = lexicon.getState(state).getSymbolMap();
         char_count = self.state_char_counts[state]
-        # Map<Byte, Integer> mapForMorph = Arrays.stream(ArrayUtils.toObject(constants.allMorphs[morphId])).collect(
-            # Collectors.toMap((Byte b) -> b, (Byte b) -> 1, (Integer x1, Integer x2) -> x1 + x2));
-        map_for_morph = {}    
-        for m in morph:
-            map_for_morph[m] = map_for_morph.get(m, 0) + 1        
+        
         # double sumWithPriors = 0.0;
         # if (!lexicon.getMorphList(state).isEmpty()) {
         #     sumWithPriors = lexicon.getMorphList(state).stream().map((Morphable m) -> m.getLength() + 1).reduce(Integer::sum).get();
         # }
-        sum_with_priors = sum([len(morph) + 1 for morph in self.morph_list.get(state, [])])
         # sumWithPriors += (constants.customCharsetIndex.length + 1) * constants.getPrior();
-        sum_with_priors += (len(self.charset) + 1) * BaseModel.PRIOR        
+        sum_with_priors = self.__state_char_size[state] + (len(self.charset) + 1) * BaseModel.PRIOR        
         # double addedToSum = constants.allMorphs[morphId].length + 1;
         added_to_sum = len(morph) + 1
         # double posPart = AmorphousMath.computeLogGammaChange(sumWithPriors, addedToSum);
         pos_part = __compute_log_gamma_change(sum_with_priors, added_to_sum)
+        # Map<Byte, Integer> mapForMorph = Arrays.stream(ArrayUtils.toObject(constants.allMorphs[morphId])).collect(
+            # Collectors.toMap((Byte b) -> b, (Byte b) -> 1, (Integer x1, Integer x2) -> x1 + x2));   
         # double negPart = 0.0;
         # for (Byte b : mapForMorph.keySet()) {
         #     double countWithPrior = currentCharCounts.getOrDefault(b, 2) + constants.getPrior();
         #     double added = mapForMorph.get(b);
         #     negPart += AmorphousMath.computeLogGammaChange(countWithPrior, added);
         # }
-        neg_part = sum([
-            __compute_log_gamma_change(char_count.get(char, 2) + BaseModel.PRIOR, added)
-            for char, added in map_for_morph.items()
-        ])
+        neg_part = sum(map(lambda x: __compute_log_gamma_change(char_count.get(x[0], 2) + BaseModel.PRIOR, x[1]), 
+                           Counter(morph).items()))
         # double countWithPrior = lexicon.getMorphList(state).size() + constants.getPrior();
         count_with_prior = self.state_size[state] + BaseModel.PRIOR
         # double added = 1;
