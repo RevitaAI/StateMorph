@@ -24,29 +24,15 @@ def _reduce_step(map_outputs, num_state):
         """Reduce step function for multiprocessing."""
         total_model_param = reduced_model_param
         
-        for k, v in model_param['morph_dict'].items():
-            if k not in total_model_param['morph_dict']:
-                total_model_param['morph_dict'][k] = {}
-            for vk, vv in v.items():            
-                if vk not in total_model_param['morph_dict'][k]:
-                    total_model_param['morph_dict'][k][vk] = 0
-                total_model_param['morph_dict'][k][vk] = total_model_param['morph_dict'][k][vk] + vv
         for k, v in model_param['state_freq'].items():
             if k not in total_model_param['state_freq']:
                 total_model_param['state_freq'][k] = 0
             total_model_param['state_freq'][k] = total_model_param['state_freq'][k] + v
-        for k, v in model_param['state_size'].items():
-            if k not in total_model_param['state_size']:
-                total_model_param['state_size'][k] = 0
-            total_model_param['state_size'][k] = total_model_param['state_size'][k] + v
-        for k, v in model_param['state_char_counts'].items():
-            if k not in total_model_param['state_char_counts']:
-                total_model_param['state_char_counts'][k] = {}
-            for vk, vv in v.items():
-                if vk not in total_model_param['state_char_counts'][k]:
-                    total_model_param['state_char_counts'][k][vk] = 0
-                total_model_param['state_char_counts'][k][vk] = total_model_param['state_char_counts'][k][vk] + vv
-                
+        for k, v in model_param['lexicon'].items():
+            if k not in total_model_param['lexicon']:
+                total_model_param['lexicon'][k] = 0
+            total_model_param['lexicon'][k] = total_model_param['lexicon'][k] + v
+
         if not len(total_model_param['transition_freq']):
             total_model_param['transition_freq'] = model_param['transition_freq']
         else:
@@ -59,10 +45,8 @@ def _reduce_step(map_outputs, num_state):
     
     _model_param = {
         'num_state': num_state + 2,
-        'morph_dict': {},
+        'lexicon': {},
         'state_freq': {k : 0 for k in range(num_state + 2)},
-        'state_size': {k : 0 for k in range(num_state + 2)},
-        'state_char_counts': {k : {} for k in range(num_state + 2)},
         'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
     }
 
@@ -99,10 +83,8 @@ def _random_segment_wrapper(partition_id, corpus, num_state) -> list:
     segmented_corpus = []
     model_param = {
         'num_state': num_state + 2,
-        'morph_dict': {},
+        'lexicon': {},
         'state_freq': {k : 0 for k in range(num_state + 2)},
-        'state_size': {k : 0 for k in range(num_state + 2)},
-        'state_char_counts': {k : {} for k in range(num_state + 2)},
         'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
     }
     for word in corpus:

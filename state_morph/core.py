@@ -30,10 +30,11 @@ class BaseModel(object):
         BaseModel.debug_segment('aaltoenergiaa', [('aalto', 4), ('energia', 11), ('a', 8)], 31.6421)
         '''
         self.num_state = 0 # Number of states
-        self.morph_dict = {} # Morph dictionary {morph: {state: freq}}
+        self.lexicon = {} # Lexicon {(morph, state): freq}
         self.state_freq = {} # State frequency {state: freq}
-        self.state_size = {} # State size {state: morph count}
-        self.state_char_counts = {} # State char counts {state: {char: freq}}
+        self.__state_size = {} # State size {state: morph count}
+        self.__morph2state2freq = {} # Morph dictionary {morph: {state: freq}}
+        self.__state2char2counts = {} # State char counts {state: {char: freq}}
         self.transition_freq = [] # Transition frequency {from_state: {to_state: freq}}
         self.lexicon_costs = []
         self.transition_costs = []
@@ -51,10 +52,8 @@ class BaseModel(object):
     def get_param_dict(self):
         model_params = {
             'num_state': self.num_state,
-            'morph_dict': self.morph_dict,
+            'lexicon': {'{}_{}'.format(*k): v for k, v in self.lexicon.items()},
             'state_freq': self.state_freq,
-            'state_size': self.state_size,
-            'state_char_counts': self.state_char_counts,
             'transition_freq': self.transition_freq,
         }
         return model_params
@@ -63,23 +62,34 @@ class BaseModel(object):
         self.__temperature = temperature
     
     def __load_model_params(self, model_params:dict):
+        __map_key = lambda x: (x[0], int(x[1]))
         self.num_state = model_params['num_state']
-        self.morph_dict = {k: {int(vk): vv for vk, vv in v.items()} for k, v in model_params['morph_dict'].items()}
+        self.lexicon = {__map_key(k.split('_')): v for k, v in model_params['lexicon'].items()}
         self.state_freq = {int(k): v for k, v in model_params['state_freq'].items()}
-        self.state_size = {int(k): v for k, v in model_params['state_size'].items()}
-        self.state_char_counts = {int(k): v for k, v in model_params['state_char_counts'].items()}
         self.transition_freq = model_params['transition_freq']
-        self.update_costs()
+        self.update_counts()
 
-    def update_costs(self):
-        self.morph_list = {k: set() for k in range(1, self.num_state - 1)}
+    def update_counts(self):
+        self.__state_size = {k : 0 for k in range(self.num_state + 2)}
+        self.__state2char2counts = {k : {} for k in range(self.num_state + 2)}
+        self.__state2morph2freq = {k: {} for k in range(1, self.num_state - 1)}
+        self.__morph2state2freq = {}
         self.__state_char_size = {k: 0 for k in range(self.num_state)}
-        for morph, state_dict in self.morph_dict.items():
-            for state, _ in state_dict.items():
-                self.morph_list[state].add(morph)
-                # lexicon.getMorphList(state).stream().map((Morphable m) -> m.getLength() + 1).reduce(Integer::sum).get();
-                self.__state_char_size[state] += len(morph) + 1
-        self.charset = {_ for morph in self.morph_dict.keys() for _ in morph}
+        self.__charset = set()
+        for (morph, state), count in self.lexicon.items():
+            self.__state2morph2freq[state][morph] = count
+            if morph not in self.__morph2state2freq:
+                self.__morph2state2freq[morph] = {}
+            self.__morph2state2freq[morph][state] = count
+            # lexicon.getMorphList(state).stream().map((Morphable m) -> m.getLength() + 1).reduce(Integer::sum).get();
+            self.__state_char_size[state] += len(morph) + 1
+            self.__state_size[state] += 1
+            for char, _ in Counter(morph).items():
+                self.__state2char2counts[state][char] = self.__state2char2counts[state].get(char, 0) + _ * count
+                self.__charset.add(char)
+            
+        
+        
         self.transition_costs = [[self.__get_transition_cost(i, j) 
                                   for j in range(self.num_state)] 
                                  for i in range(self.num_state)]
@@ -92,7 +102,7 @@ class BaseModel(object):
         # double posPart = AmorphousMath.computeLogGammaChange(sumWithPriors, addedToSum);        
         self.__add_morph_pos = {
             (state, morph_size): self.__compute_log_gamma_change(
-                    self.__state_char_size[state] + (len(self.charset) + 1) * BaseModel.PRIOR , morph_size + 1)
+                    self.__state_char_size[state] + (len(self.__charset) + 1) * BaseModel.PRIOR , morph_size + 1)
             for state in range(1, self.num_state)
             for morph_size in range(BaseModel.MORPH_SIZE + 1)
         }
@@ -111,10 +121,10 @@ class BaseModel(object):
         
         self.__add_morph_neg = {
             (state, char, count): self.__compute_log_gamma_change(
-                self.state_char_counts[state].get(char[0], 2) + BaseModel.PRIOR, count) + 
-                self.__compute_log_gamma_change(self.state_size[state] + BaseModel.PRIOR, 1)
+                self.__state2char2counts[state].get(char[0], 2) + BaseModel.PRIOR, count) + 
+                self.__compute_log_gamma_change(self.__state_size[state] + BaseModel.PRIOR, 1)
             for state in range(1, self.num_state - 1)
-            for char in self.charset
+            for char in self.__charset
             for count in range(BaseModel.MORPH_SIZE + 1)
         }
 
@@ -124,7 +134,7 @@ class BaseModel(object):
         self.segmented_corpus = segmented_corpus
         if update_model:
             self.update_model()
-            self.update_costs()
+            self.update_counts()
     
     def train_step(self, corpus=[]):
         segmented_corpus = []
@@ -143,34 +153,21 @@ class BaseModel(object):
         return self.get_param_dict(), segmented_corpus
     
     def update_model(self):
-        morph_dict = {}
+        lexicon = {}
         state_freq = {k : 0 for k in range(self.num_state + 2)}
-        state_size = {}
-        state_char_counts = {k : {} for k in range(self.num_state + 2)}
         transition_freq_dict = {}
-        __state_morph_set = {}
         for segment, _ in self.segmented_corpus:
             p_state = 0
             state_freq[0] = state_freq.get(0, 0) + 1
             for morph, state in segment:
-                __state_morph_set[state] = __state_morph_set.get(state, set())
-                __state_morph_set[state].add(morph)
-                if morph not in morph_dict:
-                    morph_dict[morph] = {}
-                if state not in morph_dict[morph]:
-                    morph_dict[morph][state] = 0
-                morph_dict[morph][state] += 1
+                if (morph, state) not in lexicon:
+                    lexicon[(morph, state)] = 0
+                lexicon[(morph, state)] += 1
                 if p_state not in transition_freq_dict:
                     transition_freq_dict[p_state] = {}
                 if state not in transition_freq_dict[p_state]:
                     transition_freq_dict[p_state][state] = 0
                 transition_freq_dict[p_state][state] += 1
-                for c in morph:
-                    if state not in state_char_counts:
-                        state_char_counts[state] = {}
-                    if c not in state_char_counts[state]:
-                        state_char_counts[state][c] = 0
-                    state_char_counts[state][c] += 1
                 state_freq[state] = state_freq.get(state, 0) + 1
                 p_state = state
 
@@ -182,12 +179,8 @@ class BaseModel(object):
                 transition_freq_dict[state] = {}
             transition_freq_dict[state][end_state] = transition_freq_dict[state].get(end_state, 0) + 1
 
-        state_size = {k : 0 for k in range(self.num_state + 2)}
-        state_size.update({k: len(v) for k, v in __state_morph_set.items()})
-        self.morph_dict = morph_dict
+        self.lexicon = lexicon
         self.state_freq = state_freq
-        self.state_size = state_size
-        self.state_char_counts = state_char_counts
         self.transition_freq = [[transition_freq_dict.get(i, {}).get(j, 0) 
                             for j in range(self.num_state)] 
                            for i in range(self.num_state)]
@@ -268,20 +261,20 @@ class BaseModel(object):
     def __get_emission_cost(self, morph: str, state: int) -> float:
         if state == self.num_state - 1:
             return 0
-        state_dict = self.morph_dict.get(morph, {})
+        state_dict = self.__morph2state2freq.get(morph, {})
         if state not in state_dict:
             # morph is not yet emitted from this class: add it:
             # We are not sure what this means. It seems  to produce a reasonable freq, estimate in marginal cases
             # Roman,: 5.0 could be  the closest power of two to size of alphabet
             cost = - math.log2(BaseModel.PRIOR / 
-                               (self.state_freq.get(state, 0) + (self.state_size[state] + 1) * BaseModel.PRIOR))
+                               (self.state_freq.get(state, 0) + (self.__state_size[state] + 1) * BaseModel.PRIOR))
             # cost += costOfAddingMorphToClass(state, morph)
             cost += self.__get_add_morph_to_state_cost(state, morph)
         else:
             # d = morph.getFrequency() + constants.getPrior();
             d = state_dict[state] + BaseModel.PRIOR
             #cost = - AmorphousMath.log2(d / (s.classFrequency() + s.classSize()*constants.getPrior()));
-            cost =  - math.log2(d / (self.state_freq[state] + self.state_size[state] * BaseModel.PRIOR))
+            cost =  - math.log2(d / (self.state_freq[state] + self.__state_size[state] * BaseModel.PRIOR))
         return cost
 
 
@@ -291,7 +284,7 @@ class BaseModel(object):
         return cost
 
     def __get_simple_lexicon_cost(self, morph: str) -> float:
-        return len(morph) + 1 + math.log(len(self.charset) + 2)
+        return len(morph) + 1 + math.log(len(self.__charset) + 2)
 
 
     def __get_lexicon_cost(self, state_id: int) -> float:
@@ -300,11 +293,11 @@ class BaseModel(object):
         if not state_id or state_id == self.num_state - 1:
             state_lex_cost = self.__get_cost([])
         else:
-            state_lex_cost = self.__get_cost(list(self.state_char_counts[state_id].values()))
+            state_lex_cost = self.__get_cost(list(self.__state2char2counts[state_id].values()))
         #we add one because Elias coding 
         # works only for positive integers but we deal with nonnegative integers.
         #double costOfCodingSize = amorphous.math.AmorphousMath.computeEliasOmegaLength(classSize + 1); 
-        cost_of_coding_size = self.__compute_elias_omega_length(self.state_size[state_id] + 1)
+        cost_of_coding_size = self.__compute_elias_omega_length(self.__state_size[state_id] + 1)
         return cost_of_coding_size + state_lex_cost
 
 
@@ -354,7 +347,7 @@ class BaseModel(object):
     
     def __get_emission_encoding_cost(self):
         emit_cost = 0
-        for c in range(1, self.num_state - 1):
-            counts = [self.morph_dict[morph][c]  for morph in self.morph_list[c]]
+        for state in range(1, self.num_state - 1):
+            counts = list(self.__state2morph2freq[state].values())
             emit_cost += self.__get_cost(counts)
         return emit_cost

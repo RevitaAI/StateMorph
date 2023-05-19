@@ -16,13 +16,12 @@ class StateMorphIO(object):
         self.base_path = os.path.abspath(base_path)
 
     
-    def load_model_from_text_files(self, segmented_file: str, **kwargs) -> None:
+    def load_model_from_text_files(self, num_state, segmented_file: str, **kwargs) -> None:
         """Read state morphology from file."""
         model_params = {
-            'morph_dict':  {},
+            'num_state': num_state,
+            'lexicon':  {},
             'state_freq': {},
-            'state_size': {},
-            'state_char_counts': {},
             'transition_freq': [],
         }
         model = BaseModel(model_params, **kwargs)
@@ -92,12 +91,5 @@ class StateMorphIO(object):
 
     def __load_model_file(self, model, segmented_file: str) -> None:
         raw_segments_str = self.__load_segmented_file(segmented_file)
-        self.__load_raw_model(model, raw_segments_str)
-
-
-    def __load_raw_model(self, model, raw_segments_str: str) -> None:
-        #print('Read model...')
         self.__load_segments(model, raw_segments_str)
-        #print('Num of state:', self.state_num - 2)
-        #print('Num of morph:', len(self.morph_dict.keys()))
-        
+            
