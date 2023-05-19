@@ -39,7 +39,14 @@ class BaseModel(object):
         self.transition_costs = []
         self.segmented_corpus = []
         self.__temperature = 0
+        self.__compute_log_gamma_change = lambda count, added: np.log2(np.arange(count, count + added, 1)).sum()
         self.__load_model_params(model_param)
+        # double result = 0.0;
+        # for(double x = count ; x < count+added ; x++){
+        #     result += log2(x);
+        # }
+        # return result;
+        
     
     def get_param_dict(self):
         model_params = {
@@ -76,6 +83,42 @@ class BaseModel(object):
         self.transition_costs = [[self.__get_transition_cost(i, j) 
                                   for j in range(self.num_state)] 
                                  for i in range(self.num_state)]
+        # double sumWithPriors = 0.0;
+        # if (!lexicon.getMorphList(state).isEmpty()) {
+        #     sumWithPriors = lexicon.getMorphList(state).stream().map((Morphable m) -> m.getLength() + 1).reduce(Integer::sum).get();
+        # }
+        # sumWithPriors += (constants.customCharsetIndex.length + 1) * constants.getPrior();
+        # double addedToSum = constants.allMorphs[morphId].length + 1;
+        # double posPart = AmorphousMath.computeLogGammaChange(sumWithPriors, addedToSum);        
+        self.__add_morph_pos = {
+            (state, morph_size): self.__compute_log_gamma_change(
+                    self.__state_char_size[state] + (len(self.charset) + 1) * BaseModel.PRIOR , morph_size + 1)
+            for state in range(1, self.num_state)
+            for morph_size in range(BaseModel.MORPH_SIZE + 1)
+        }
+                
+        # Map<Byte, Integer> mapForMorph = Arrays.stream(ArrayUtils.toObject(constants.allMorphs[morphId])).collect(
+            # Collectors.toMap((Byte b) -> b, (Byte b) -> 1, (Integer x1, Integer x2) -> x1 + x2));   
+        # double negPart = 0.0;
+        # for (Byte b : mapForMorph.keySet()) {
+        #     double countWithPrior = currentCharCounts.getOrDefault(b, 2) + constants.getPrior();
+        #     double added = mapForMorph.get(b);
+        #     negPart += AmorphousMath.computeLogGammaChange(countWithPrior, added);
+        # }
+        # double countWithPrior = lexicon.getMorphList(state).size() + constants.getPrior();
+        # double added = 1;
+        # negPart += AmorphousMath.computeLogGammaChange(countWithPrior, added);
+        
+        self.__add_morph_neg = {
+            (state, char, count): self.__compute_log_gamma_change(
+                self.state_char_counts[state].get(char[0], 2) + BaseModel.PRIOR, count) + 
+                self.__compute_log_gamma_change(self.state_size[state] + BaseModel.PRIOR, 1)
+            for state in range(1, self.num_state - 1)
+            for char in self.charset
+            for count in range(BaseModel.MORPH_SIZE + 1)
+        }
+
+        
         
     def update_segmented_corpus(self, segmented_corpus, update_model=True):
         self.segmented_corpus = segmented_corpus
@@ -217,47 +260,13 @@ class BaseModel(object):
         print('Cost prec error:', float(format((cost - expected_cost) / expected_cost, '.5f')), '%')
 
     def __get_add_morph_to_state_cost(self, state, morph):
-        # double result = 0.0;
-        # for(double x = count ; x < count+added ; x++){
-        #     result += log2(x);
-        # }
-        # return result;
-        __compute_log_gamma_change = lambda count, added: np.log2(np.arange(count, count + added, 1)).sum()
-        
-        # Map<Byte, Integer> currentCharCounts = lexicon.getState(state).getSymbolMap();
-        char_count = self.state_char_counts[state]
-        
-        # double sumWithPriors = 0.0;
-        # if (!lexicon.getMorphList(state).isEmpty()) {
-        #     sumWithPriors = lexicon.getMorphList(state).stream().map((Morphable m) -> m.getLength() + 1).reduce(Integer::sum).get();
-        # }
-        # sumWithPriors += (constants.customCharsetIndex.length + 1) * constants.getPrior();
-        sum_with_priors = self.__state_char_size[state] + (len(self.charset) + 1) * BaseModel.PRIOR        
-        # double addedToSum = constants.allMorphs[morphId].length + 1;
-        added_to_sum = len(morph) + 1
-        # double posPart = AmorphousMath.computeLogGammaChange(sumWithPriors, addedToSum);
-        pos_part = __compute_log_gamma_change(sum_with_priors, added_to_sum)
-        # Map<Byte, Integer> mapForMorph = Arrays.stream(ArrayUtils.toObject(constants.allMorphs[morphId])).collect(
-            # Collectors.toMap((Byte b) -> b, (Byte b) -> 1, (Integer x1, Integer x2) -> x1 + x2));   
-        # double negPart = 0.0;
-        # for (Byte b : mapForMorph.keySet()) {
-        #     double countWithPrior = currentCharCounts.getOrDefault(b, 2) + constants.getPrior();
-        #     double added = mapForMorph.get(b);
-        #     negPart += AmorphousMath.computeLogGammaChange(countWithPrior, added);
-        # }
-        neg_part = sum(map(lambda x: __compute_log_gamma_change(char_count.get(x[0], 2) + BaseModel.PRIOR, x[1]), 
+        pos_part = self.__add_morph_pos[(state, len(morph))]
+        neg_part = sum(map(lambda x: self.__add_morph_neg[(state, x[0], x[1])], 
                            Counter(morph).items()))
-        # double countWithPrior = lexicon.getMorphList(state).size() + constants.getPrior();
-        count_with_prior = self.state_size[state] + BaseModel.PRIOR
-        # double added = 1;
-        # negPart += AmorphousMath.computeLogGammaChange(countWithPrior, added);
-        neg_part += __compute_log_gamma_change(count_with_prior, 1)
-        # double newWay = posPart - negPart;
-        # return newWay;
         return pos_part - neg_part
         
     def __get_emission_cost(self, morph: str, state: int) -> float:
-        if morph == '' and state == self.num_state - 1:
+        if state == self.num_state - 1:
             return 0
         state_dict = self.morph_dict.get(morph, {})
         if state not in state_dict:

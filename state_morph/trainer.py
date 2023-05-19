@@ -3,8 +3,6 @@ from .core import BaseModel
 from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _split_partition, \
     _map_segment, _reduce_segment
 from .io import StateMorphIO
-from statistics import mean
-import dask
 import copy
 from dask.distributed import as_completed
 
