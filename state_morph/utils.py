@@ -97,22 +97,23 @@ def _random_segment_wrapper(partition_id, corpus, num_state, num_prefix, num_suf
         'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
     }
     for word in corpus:
-        segment = []
         if len(word) > 1:
-            j = 0
-            for i in random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)):
-                morph = word[j:i]
-                if len(morph) >= 1:
-                    if j == 0 and num_prefix:
-                        segment.append((morph, random.randint(1, num_prefix)))
-                    else:
-                        segment.append((morph, random.randint(num_prefix + 1, num_state - num_suffix)))
-                    j = i
-            morph = word[j:]
-            if len(morph) >= 1:
-                segment.append((morph, random.randint(num_state - num_suffix, num_state)))
+            bounds = sorted(random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)))
+            if bounds[-1] != len(word):
+                bounds.append(len(word))
+            if bounds[0] != 0:
+                bounds.insert(0, 0)
+            bounds = [(start, end) for start, end in zip(bounds[:-1], bounds[1:]) if start != end]
+            prefixes = [random.randint(1, num_prefix) for _ in range(random.randint(0, num_prefix))]
+            suffixes = [random.randint(num_state - num_suffix, num_state) for _ in range(random.randint(0, num_suffix))]
+            stems = [random.randint(num_prefix + 1, num_state - num_suffix) 
+                     for _ in range(len(bounds) - len(prefixes) - len(suffixes))]
+            segment = [
+                (word[start:end], state)
+                for (start, end), state in zip(bounds, prefixes + stems + suffixes)
+            ]
         else:
-            segment.append((morph, random.randint(num_prefix + 1, num_state - num_suffix)))
+            segment = [(word, random.randint(num_prefix + 1, num_state - num_suffix))]
         segmented_corpus.append((segment, 0))
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)

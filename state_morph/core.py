@@ -214,20 +214,27 @@ class BaseModel(object):
             'morph': to_be_segmented[char_index]
         } for char_index in range(len(word) + 2)] for state in range(self.num_state)]
         dp_matrix[0][0]['cost'] = 0
-        for state in range(1, self.num_state):
-            for char_idx in range(1, len(word) + 2):
+        for char_idx in range(1, len(word) + 2):
+            for state in range(1, self.num_state):
                 searching_middle = char_idx != len(word) + 1 and state != self.num_state - 1
                 searching_end = char_idx == len(word) + 1 and state == self.num_state - 1
                 if searching_middle or searching_end:
                     current_cell = dp_matrix[state][char_idx]
                     if state <= self.num_prefix:
-                        allowed_states = dp_matrix[int(searching_end): self.num_state - 1 - self.num_suffix] 
+                        # Current prefix state
+                        # Previous state must be prefix or $
+                        allowed_states = dp_matrix[: self.num_prefix + 1] 
                     elif self.num_prefix < state < self.num_state - 1 - self.num_suffix:
-                        allowed_states = dp_matrix[
-                            self.num_prefix + int(searching_end): 
-                            self.num_state - 1 - self.num_suffix]
+                        # Current stem state
+                        # Previous state should be prefix or stem or $
+                        allowed_states = dp_matrix[: self.num_state - 1 - self.num_suffix]
                     else:
-                        allowed_states = dp_matrix[self.num_state - 1 - self.num_suffix: -1]
+                        # Current suffix state
+                        # Previous state should be stem or suffix
+                        allowed_states = dp_matrix[self.num_prefix + 1: -1]
+                    
+                    if searching_end:
+                        allowed_states = dp_matrix[self.num_prefix + 1: -1]
                     
                     search_space = [cell 
                                     for chars in allowed_states

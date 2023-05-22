@@ -79,7 +79,8 @@ class StateMorphTrainer(object):
                                        self.__segment_randomly(iteration, total_iteration)) 
                     for i, (partition, mp) in enumerate(zip(self.__partitions, scattered_model_param))]
         results = [result for _, result in as_completed(futures, with_results=True)]
-        reduce_step = self.client.submit(_reduce_step_wrapper(self.num_state), results)
+        reduce_step = self.client.submit(
+                _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), results)
         model_param, loss = reduce_step.result()
         print('Reduce step finished...')
         print('Iteration: {}, Cost: {}'.format(iteration, loss))
@@ -103,7 +104,9 @@ class StateMorphTrainer(object):
     def __bulk_de_registration(self, model_param):
         print('Bulk de-registration started...')
         deregistered_morph = set()
-        for (morph, state), count in model_param['lexicon'].items():
+        __map_key = lambda x: (x[0], int(x[1]))
+        for k, count in model_param['lexicon'].items():
+            morph, state = __map_key(k.split('_'))
             if (state <= self.__num_prefix or state > self.num_state - self.__num_suffix) and \
                 count < self.__affix_lbound and random.random() < self.__bulk_prob:
                 deregistered_morph.add((morph, state))
@@ -119,6 +122,7 @@ class StateMorphTrainer(object):
         deregistered_model = BaseModel(model_param)
         deregistered_model.update_segmented_corpus(filtered_segmented_corpus)
         print('Bulk de-registration finished...')
+        print('Removed morphs:', len(deregistered_morph))
         return deregistered_model.compute_encoding_cost(), deregistered_model.get_param_dict()
     
     def train(self, iteration=10) -> BaseModel:
@@ -135,8 +139,8 @@ class StateMorphTrainer(object):
         for _ in range(iteration):
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
             loss, model_param = self.__step(_, model_param, total_iteration)
-            if random.random() < (math.exp(_/(total_iteration / 3.0)) - 1) / (math.exp(3) - 1) or True:
-                loss. model_param = self.__bulk_de_registration(model_param)
+            if random.random() < (math.exp(_/(total_iteration / 3.0)) - 1) / (math.exp(3) - 1):
+                loss, model_param = self.__bulk_de_registration(model_param)
             
             # Early stopping
             if abs(p_loss - loss) < self._delta and loss:
