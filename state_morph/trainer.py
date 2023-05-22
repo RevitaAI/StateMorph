@@ -50,7 +50,8 @@ class StateMorphTrainer(object):
                                            self.num_state, self.__num_prefix, self.__num_suffix) 
                         for i, partition in enumerate(self.__partitions)]
             results = [result for _, result in as_completed(futures, with_results=True)]
-            reduce_step = self.client.submit(_reduce_step_wrapper(self.num_state), results)
+            reduce_step = self.client.submit(
+                _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), results)
             self.__init_model_param, loss = reduce_step.result()
             print('Init cost:', loss)
 
@@ -126,7 +127,9 @@ class StateMorphTrainer(object):
         p_loss = -1
         count = 0
         
-        temp = math.ceil((math.log2(self._final_temp) - math.log2(self._current_temp)) / math.log2(self._alpha))        
+        temp = math.inf
+        if self._final_temp> 0 and self._current_temp > 0 and self._alpha > 0:
+            temp = math.ceil((math.log2(self._final_temp) - math.log2(self._current_temp)) / math.log2(self._alpha))        
         total_iteration = min(temp, iteration)
         
         for _ in range(iteration):

@@ -74,44 +74,4 @@ cost = - AmorphousMath.log2(constants.getPrior() / (s.classFrequency() + (s.clas
 //System.out.println("\tpreq: cost of adding morph: " + costOfAddingMorphToClass(state, morphId));
 cost += costOfAddingMorphToClass(state, morphId);
 ```
-
-## Missing features
-
-### Word level simulated annealing and Hybrid simulated annealing
-
-* Word-level: Random re-segmentation based on concave conves or linear
-* Hybrid: Randomly choose morph-level simulated annealing or word-level simulated annealing
-
-``` java
-
-case CONCAVE:
-    prob = (totalNumIteration/(round-totalNumIteration)+10.0)/9.0;
-    break;
-case CONVEX:
-    if(round < 0.95 * totalNumIteration){
-        prob = 1.0/(round + 1);
-    }else{
-        prob = 0.0;
-    }
-    break;
-case LINEAR:
-    prob = 1.0 - round/(0.95*totalNumIteration);
-    break;
-
-if(prob > 1.0){
-    prob = 1.0;
-}
-if(prob < 0.0){
-    prob = 0.0;
-}
-```
-
-### Bulk de-registration
-
-``` java
-public static final String BULK_DEREGISTRATION_OPTION = "bulkdereg";
-public static final String BULK_DEREG_PROBABILITY_OPTION = "bulkprob";
-public static final String BULK_DEREG_STEM_UBOUND = "bulkubound";
-public static final String BULK_DEREG_AFFIX_LBOUND = "bulklbound";
-
-```
+a

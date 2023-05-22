@@ -222,8 +222,10 @@ class BaseModel(object):
                     current_cell = dp_matrix[state][char_idx]
                     if state <= self.num_prefix:
                         allowed_states = dp_matrix[int(searching_end): self.num_state - 1 - self.num_suffix] 
-                    elif self.num_prefix < state <= self.num_state - 1 - self.num_suffix:
-                        allowed_states = dp_matrix[self.num_prefix + 1: self.num_state - 1 - self.num_suffix]
+                    elif self.num_prefix < state < self.num_state - 1 - self.num_suffix:
+                        allowed_states = dp_matrix[
+                            self.num_prefix + int(searching_end): 
+                            self.num_state - 1 - self.num_suffix]
                     else:
                         allowed_states = dp_matrix[self.num_state - 1 - self.num_suffix: -1]
                     

@@ -103,16 +103,16 @@ def _random_segment_wrapper(partition_id, corpus, num_state, num_prefix, num_suf
             for i in random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)):
                 morph = word[j:i]
                 if len(morph) >= 1:
-                    if j == 0:
+                    if j == 0 and num_prefix:
                         segment.append((morph, random.randint(1, num_prefix)))
                     else:
-                        segment.append((morph, random.randint(num_state - num_prefix - num_suffix, num_state)))
+                        segment.append((morph, random.randint(num_prefix + 1, num_state - num_suffix)))
                     j = i
             morph = word[j:]
             if len(morph) >= 1:
-                segment.append((morph, random.randint(num_prefix, num_prefix + num_suffix)))
+                segment.append((morph, random.randint(num_state - num_suffix, num_state)))
         else:
-            segment.append((word, random.randint(num_state - num_prefix - num_suffix, num_state)))
+            segment.append((morph, random.randint(num_prefix + 1, num_state - num_suffix)))
         segmented_corpus.append((segment, 0))
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)
