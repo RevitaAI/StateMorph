@@ -39,7 +39,6 @@ class BaseModel(object):
         self.lexicon_costs = []
         self.transition_costs = []
         self.segmented_corpus = []
-        self.__temperature = 0
         self.__load_model_params(model_param)
         # double result = 0.0;
         # for(double x = count ; x < count+added ; x++){
@@ -57,8 +56,6 @@ class BaseModel(object):
         }
         return model_params
         
-    def set_temperature(self, temperature):
-        self.__temperature = temperature
     
     def __load_model_params(self, model_params:dict):
         __map_key = lambda x: (x[0], int(x[1]))
@@ -143,17 +140,17 @@ class BaseModel(object):
             self.update_model()
             self.update_counts()
     
-    def train_step(self, corpus=[]):
+    def train_step(self, corpus=[], temperature=0):
         segmented_corpus = []
         for segment, _ in self.segmented_corpus:
             word = ''.join([morph for morph, _ in segment])
-            new_segment, new_cost = self.search(word)
+            new_segment, new_cost = self.__search(word, temperature=temperature)
             if new_cost != math.inf:
                 segmented_corpus.append((new_segment, new_cost))
             else:
                 segmented_corpus.append((segment, _))
         for word in corpus:
-            new_segment, new_cost = self.search(word)
+            new_segment, new_cost = self.__search(word, temperature=temperature)
             if new_cost != math.inf:
                 segmented_corpus.append((new_segment, new_cost))
         self.update_segmented_corpus([_ for _ in segmented_corpus if _[1] > 0])
@@ -201,7 +198,7 @@ class BaseModel(object):
         cost += self.__get_emission_encoding_cost()
         return cost
 
-    def search(self, word: str) -> tuple :
+    def __search(self, word: str, temperature=0) -> tuple :
         to_be_segmented = '$' + word + '#'
         dp_matrix = [[{
             'state': state, 
@@ -228,7 +225,7 @@ class BaseModel(object):
                         cost += self.__get_emission_cost(morph, current_cell['state'])
                         costs.append((idx, cost))
                     candidates = sorted(costs, key=lambda x: x[1])
-                    window_size = int(max(min(self.__temperature / 100 * len(candidates), len(candidates)), 1))
+                    window_size = int(max(min(temperature / 100 * len(candidates), len(candidates)), 1))
                     candidates = [candidates[0]] + [_ for _ in candidates[1: window_size] if not math.isinf(_[1])]
                     idx, cost = random.choice(candidates)
                     current_cell['previous'] = search_space[idx]

@@ -4,7 +4,7 @@ import socket
 import os
 import copy
 
-def _map_step(partition_id, model_param, corpus, temperature):
+def _map_step(partition_id, model_param, corpus, num_state, temperature, do_random_seg):
     """Map step function for multiprocessing."""
     print('Map ID:', partition_id, 
           'Host:', socket.gethostname(), 
@@ -12,8 +12,12 @@ def _map_step(partition_id, model_param, corpus, temperature):
           'Corpus size:', len(corpus), 
           'started...')
     model = BaseModel(model_param)
-    model.set_temperature(temperature)
-    model_param, segmented_corpus = model.train_step(corpus)
+    if not do_random_seg:
+        model_param, _ = model.train_step(corpus, temperature=temperature)
+    else:
+        segmented_corpus = _random_segment(corpus, num_state)
+        model.update_segmented_corpus(segmented_corpus)
+        model_param = model.get_param_dict()
     print('Map ID:', partition_id, 'ended...')
     return model_param
 
