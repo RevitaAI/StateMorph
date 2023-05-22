@@ -2,22 +2,27 @@ from .core import BaseModel
 import random
 import socket
 import os
-import copy
 
-def _map_step(partition_id, model_param, corpus, temperature, do_random_seg):
+
+def _map_step(partition_id, init_model_param, corpus, temperature, random_seg_prob):
     """Map step function for multiprocessing."""
     print('Map ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
           'Corpus size:', len(corpus), 
+          'Random segmentation probability:', random_seg_prob,
           'started...')
-    model = BaseModel(model_param)
-    if not do_random_seg:
-        model_param, _ = model.train_step(corpus, temperature=temperature)
-    else:
-        segmented_corpus = _random_segment(corpus, model_param['num_state'] - 2)
-        model.update_segmented_corpus(segmented_corpus)
-        model_param = model.get_param_dict()
+    model = BaseModel(init_model_param)
+    random.shuffle(corpus)
+    to_be_trained = corpus[:int(len(corpus) * (1 - random_seg_prob))]
+    to_be_random_segmented = corpus[int(len(corpus) * (1 - random_seg_prob)):]
+    segmented_corpus = []
+    if len(to_be_trained):
+        model_param, segmented_corpus = model.train_step(to_be_trained, temperature=temperature)
+    if len(to_be_random_segmented):
+        random_segmented_corpus = _random_segment(to_be_random_segmented, init_model_param['num_state'] - 2)
+        model.update_segmented_corpus(segmented_corpus + random_segmented_corpus)
+    model_param = model.get_param_dict()
     print('Map ID:', partition_id, 'ended...')
     return model_param
 
