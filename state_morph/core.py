@@ -32,6 +32,8 @@ class BaseModel(object):
         self.num_state = 0 # Number of states
         self.lexicon = {} # Lexicon {(morph, state): freq}
         self.state_freq = {} # State frequency {state: freq}
+        self.num_prefix = 0
+        self.num_suffix = 0
         self.__state_size = {} # State size {state: morph count}
         self.__morph2state2freq = {} # Morph dictionary {morph: {state: freq}}
         self.__state2char2counts = {} # State char counts {state: {char: freq}}
@@ -50,6 +52,8 @@ class BaseModel(object):
     def get_param_dict(self):
         model_params = {
             'num_state': self.num_state,
+            'num_prefix': self.num_prefix,
+            'num_suffix': self.num_suffix,
             'lexicon': {'{}_{}'.format(*k): v for k, v in self.lexicon.items()},
             'state_freq': self.state_freq,
             'transition_freq': self.transition_freq,
@@ -63,6 +67,8 @@ class BaseModel(object):
         self.lexicon = {__map_key(k.split('_')): v for k, v in model_params['lexicon'].items()}
         self.state_freq = {int(k): v for k, v in model_params['state_freq'].items()}
         self.transition_freq = model_params['transition_freq']
+        self.num_prefix = model_params['num_prefix']
+        self.num_suffix = model_params['num_suffix']
         self.update_counts()
 
     def update_counts(self):
@@ -214,8 +220,15 @@ class BaseModel(object):
                 searching_end = char_idx == len(word) + 1 and state == self.num_state - 1
                 if searching_middle or searching_end:
                     current_cell = dp_matrix[state][char_idx]
+                    if state <= self.num_prefix:
+                        allowed_states = dp_matrix[int(searching_end): self.num_state - 1 - self.num_suffix] 
+                    elif self.num_prefix < state <= self.num_state - 1 - self.num_suffix:
+                        allowed_states = dp_matrix[self.num_prefix + 1: self.num_state - 1 - self.num_suffix]
+                    else:
+                        allowed_states = dp_matrix[self.num_state - 1 - self.num_suffix: -1]
+                    
                     search_space = [cell 
-                                    for chars in dp_matrix[int(searching_end): -1] 
+                                    for chars in allowed_states
                                     for cell in chars[max(char_idx - BaseModel.MORPH_SIZE, int(searching_end)): char_idx]]
                     costs = []
                     for idx, previous_cell in enumerate(search_space):

@@ -16,10 +16,12 @@ class StateMorphIO(object):
         self.base_path = os.path.abspath(base_path)
 
     
-    def load_model_from_text_files(self, num_state, segmented_file: str, **kwargs) -> None:
+    def load_model_from_text_files(self, num_state, num_prefix, num_suffix, segmented_file: str, **kwargs) -> None:
         """Read state morphology from file."""
         model_params = {
             'num_state': num_state,
+            'num_prefix': num_prefix,
+            'num_suffix': num_suffix,
             'lexicon':  {},
             'state_freq': {},
             'transition_freq': [],

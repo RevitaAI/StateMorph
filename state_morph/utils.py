@@ -4,7 +4,7 @@ import socket
 import os
 import copy
 
-def _map_step(partition_id, model_param, corpus, num_state, temperature, do_random_seg):
+def _map_step(partition_id, model_param, corpus, temperature, do_random_seg):
     """Map step function for multiprocessing."""
     print('Map ID:', partition_id, 
           'Host:', socket.gethostname(), 
@@ -15,15 +15,16 @@ def _map_step(partition_id, model_param, corpus, num_state, temperature, do_rand
     if not do_random_seg:
         model_param, _ = model.train_step(corpus, temperature=temperature)
     else:
-        segmented_corpus = _random_segment(corpus, num_state)
+        segmented_corpus = _random_segment(corpus, model_param['num_state'] - 2)
         model.update_segmented_corpus(segmented_corpus)
         model_param = model.get_param_dict()
     print('Map ID:', partition_id, 'ended...')
     return model_param
 
-_reduce_step_wrapper = lambda num_state: lambda map_outputs: _reduce_step(map_outputs, num_state)
+_reduce_step_wrapper = lambda num_state, num_prefix, num_suffix: lambda map_outputs: \
+    _reduce_step(map_outputs, num_state, num_prefix, num_suffix)
                 
-def _reduce_step(map_outputs, num_state):
+def _reduce_step(map_outputs, num_state, num_prefix, num_suffix):
     def _reduce(reduced_model_param, model_param):
         """Reduce step function for multiprocessing."""
         total_model_param = reduced_model_param
@@ -49,6 +50,8 @@ def _reduce_step(map_outputs, num_state):
     
     _model_param = {
         'num_state': num_state + 2,
+        'num_prefix': num_prefix,
+        'num_suffix': num_suffix,
         'lexicon': {},
         'state_freq': {k : 0 for k in range(num_state + 2)},
         'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
@@ -78,7 +81,7 @@ def _random_segment(corpus, num_state):
         segmented_corpus.append((segment, 0))
     return segmented_corpus
 
-def _random_segment_wrapper(partition_id, corpus, num_state) -> list:
+def _random_segment_wrapper(partition_id, corpus, num_state, num_prefix, num_suffix) -> list:
     print('Random Seg ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
@@ -87,6 +90,8 @@ def _random_segment_wrapper(partition_id, corpus, num_state) -> list:
     segmented_corpus = []
     model_param = {
         'num_state': num_state + 2,
+        'num_prefix': num_prefix,
+        'num_suffix': num_suffix,
         'lexicon': {},
         'state_freq': {k : 0 for k in range(num_state + 2)},
         'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
@@ -98,25 +103,22 @@ def _random_segment_wrapper(partition_id, corpus, num_state) -> list:
             for i in random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)):
                 morph = word[j:i]
                 if len(morph) >= 1:
-                    segment.append((morph, random.randint(1, num_state)))
+                    if j == 0:
+                        segment.append((morph, random.randint(1, num_prefix)))
+                    else:
+                        segment.append((morph, random.randint(num_state - num_prefix - num_suffix, num_state)))
                     j = i
             morph = word[j:]
             if len(morph) >= 1:
-                segment.append((morph, random.randint(1, num_state)))
+                segment.append((morph, random.randint(num_prefix, num_prefix + num_suffix)))
         else:
-            segment.append((word, random.randint(1, num_state)))
+            segment.append((word, random.randint(num_state - num_prefix - num_suffix, num_state)))
         segmented_corpus.append((segment, 0))
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)
     print('Random Seg ID:', partition_id, 'ended...')
     return model.get_param_dict()
 
-def _merge_morph(segmented_corpus) -> list:
-    corpus = []
-    for segment, _ in segmented_corpus:
-        word = ''.join([morph for morph, _ in segment])
-        corpus.append(word)
-    return corpus
 
 def _split_partition(corpus, num_partitions):
     partition_size = len(corpus) // num_partitions
