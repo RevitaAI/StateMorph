@@ -89,7 +89,7 @@ class BaseModel(object):
             for char, _ in Counter(morph).items():
                 self.__state2char2counts[state][char] = self.__state2char2counts[state].get(char, 0) + _ * count
                 self.__charset.add(char)
-            
+        self.__num_bit_per_char = math.ceil(math.log(len(self.__charset) + 1) /  BaseModel.LOG_2)
         
         
         self.transition_costs = [[self.__get_transition_cost(i, j) 
@@ -198,11 +198,9 @@ class BaseModel(object):
         
     def compute_encoding_cost(self) -> float:
         # PrequentialCost
-        cost = 0
-        cost += self.__get_transition_encoding_cost()
-        cost += sum([self.__get_lexicon_cost(_) for _ in range(1, self.num_state)])
-        cost += self.__get_emission_encoding_cost()
-        return cost
+        transition_encoding_cost = self.__get_transition_encoding_cost()
+        lexicon_encoding_cost, emissions_encoding_cost = self.__get_lexicon_and_emission_encoding_cost()
+        return lexicon_encoding_cost + emissions_encoding_cost + transition_encoding_cost
 
     def __search(self, word: str, temperature=0) -> tuple :
         to_be_segmented = '$' + word + '#'
@@ -311,48 +309,6 @@ class BaseModel(object):
                            (self.state_freq.get(state_a, 0) + (self.num_state - 2)* BaseModel.PRIOR))
         return cost
 
-    def __get_simple_lexicon_cost(self, morph: str) -> float:
-        return len(morph) + 1 + math.log(len(self.__charset) + 2)
-
-
-    def __get_lexicon_cost(self, state_id: int) -> float:
-        #int classSize = lexicon.getMorphList(state).size();
-        #double classLexCost = computePrequentialCostForMap(classCount);
-        if not state_id or state_id == self.num_state - 1:
-            state_lex_cost = self.__get_cost([])
-        else:
-            state_lex_cost = self.__get_cost(list(self.__state2char2counts[state_id].values()))
-        #we add one because Elias coding 
-        # works only for positive integers but we deal with nonnegative integers.
-        #double costOfCodingSize = amorphous.math.AmorphousMath.computeEliasOmegaLength(classSize + 1); 
-        cost_of_coding_size = self.__compute_elias_omega_length(self.__state_size[state_id] + 1)
-        return cost_of_coding_size + state_lex_cost
-
-
-    def __get_cost(self, counts: list) -> float:
-        if not len(counts):
-            return 0
-        cost = 0
-        sumOfEvents = 0
-        sumOfPriors = 0
-        for d in counts:
-            cost -= math.lgamma(d + BaseModel.PRIOR) / BaseModel.LOG_2
-            cost += math.lgamma(BaseModel.PRIOR) / BaseModel.LOG_2
-            sumOfEvents += d + BaseModel.PRIOR
-            sumOfPriors += BaseModel.PRIOR
-
-        cost += math.lgamma(sumOfEvents) / BaseModel.LOG_2
-        cost -= math.lgamma(sumOfPriors) / BaseModel.LOG_2
-        return cost
-
-
-    def __compute_elias_omega_length(self, x:int) -> float:
-        length = 0
-        lambda_i_number = math.floor(math.log2(x))
-        while lambda_i_number > 0:
-            length += lambda_i_number + 1
-            lambda_i_number = math.floor(math.log2(lambda_i_number))
-        return length
 
     def __get_transition_encoding_cost(self) -> float:
         length = 0
@@ -373,9 +329,50 @@ class BaseModel(object):
             length -= math.lgamma(sum_of_priors) / BaseModel.LOG_2
         return length
     
-    def __get_emission_encoding_cost(self):
-        emit_cost = 0
+    
+    def __get_lexicon_and_emission_encoding_cost(self) -> float:
+        
+        # double lexiconLength = 0;
+        lexicon_length = 0
+        # double emissionsLength = 0;
+        emissions_length = 0
+        
+        # for (int c = START_STATE + 1; c < END_STATE; c++) {
+        #     morphs = this.lexicon.getMorphList(c);
+        #     classSize = this.lexicon.getClassSize(c);
+        #     int sumCounts = 0;
+        #     if (classSize > 0) {
+        #         for (Morphable m : morphs) {
+        #             lexiconLength += constants.getNumBitsForOneSymbol() * (m.getLength() + 1);                    
+        #             emissionsLength -= AmorphousMath.log2Gamma(m.getCounter() + constants.getPrior());        
+        #             emissionsLength += AmorphousMath.log2Gamma(constants.getPrior());
+        #             sumCounts += m.getCounter();
+        #         }
+                
+        #         emissionsLength += AmorphousMath.log2Gamma(sumCounts + classSize*constants.getPrior());
+        #         emissionsLength -= AmorphousMath.log2Gamma(classSize*constants.getPrior());
+                
+        #         //Subract the number of bits we have saved from transmitting morphs in a specific order :
+        #         emissionsLength -= AmorphousMath.log2Gamma(classSize + 1);
+        #     }
+            
+            
+        # }
         for state in range(1, self.num_state - 1):
-            counts = list(self.__state2morph2freq[state].values())
-            emit_cost += self.__get_cost(counts)
-        return emit_cost
+            morphs = self.__state2morph2freq[state].keys()
+            class_size = self.__state_size[state]
+            sum_counts = 0
+            if class_size > 0:
+                for morph in morphs:
+                    lexicon_length += self.__num_bit_per_char * (len(morph) + 1)
+                    emissions_length -= math.lgamma(self.__state2morph2freq[state][morph] + BaseModel.PRIOR)
+                    emissions_length += math.lgamma(BaseModel.PRIOR)
+                    sum_counts += self.__state2morph2freq[state][morph]
+                
+                emissions_length += math.lgamma(sum_counts + class_size * BaseModel.PRIOR)
+                emissions_length -= math.lgamma(class_size * BaseModel.PRIOR)
+                
+                emissions_length -= math.lgamma(class_size + 1)
+        
+        return lexicon_length, emissions_length
+    
