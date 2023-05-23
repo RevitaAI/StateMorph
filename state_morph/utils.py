@@ -4,8 +4,9 @@ import socket
 import os
 
 
-def _map_step(partition_id, init_model_param, corpus, temperature, random_seg_prob):
+def _map_step(args):
     """Map step function for multiprocessing."""
+    partition_id, init_model_param, corpus, temperature, random_seg_prob = args
     print('Map ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
@@ -20,7 +21,9 @@ def _map_step(partition_id, init_model_param, corpus, temperature, random_seg_pr
     if len(to_be_trained):
         model_param, segmented_corpus = model.train_step(to_be_trained, temperature=temperature)
     if len(to_be_random_segmented):
-        random_segmented_corpus = _random_segment(to_be_random_segmented, init_model_param['num_state'] - 2)
+        random_segmented_corpus = _random_segment(
+            to_be_random_segmented, init_model_param['num_state'] - 2, 
+            init_model_param['num_prefix'], init_model_param['num_suffix'])
         model.update_segmented_corpus(segmented_corpus + random_segmented_corpus)
     model_param = model.get_param_dict()
     print('Map ID:', partition_id, 'ended...')
@@ -67,40 +70,8 @@ def _reduce_step(map_outputs, num_state, num_prefix, num_suffix):
     _cost = BaseModel(_model_param).compute_encoding_cost()
     return _model_param, _cost        
 
-def _random_segment(corpus, num_state):
+def _random_segment(corpus, num_state, num_prefix, num_suffix):
     segmented_corpus = []
-    for word in corpus:
-        segment = []
-        if len(word) > 1:
-            j = 0
-            for i in random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)):
-                morph = word[j:i]
-                if len(morph) >= 1:
-                    segment.append((morph, random.randint(1, num_state)))
-                    j = i
-            morph = word[j:]
-            if len(morph) >= 1:
-                segment.append((morph, random.randint(1, num_state)))
-        else:
-            segment.append((word, random.randint(1, num_state)))
-        segmented_corpus.append((segment, 0))
-    return segmented_corpus
-
-def _random_segment_wrapper(partition_id, corpus, num_state, num_prefix, num_suffix) -> list:
-    print('Random Seg ID:', partition_id, 
-          'Host:', socket.gethostname(), 
-          'PID:', os.getpid(),
-          'Corpus size:', len(corpus), 
-          'started...')
-    segmented_corpus = []
-    model_param = {
-        'num_state': num_state + 2,
-        'num_prefix': num_prefix,
-        'num_suffix': num_suffix,
-        'lexicon': {},
-        'state_freq': {k : 0 for k in range(num_state + 2)},
-        'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
-    }
     for word in corpus:
         if len(word) > 1:
             bounds = sorted(random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)))
@@ -120,6 +91,24 @@ def _random_segment_wrapper(partition_id, corpus, num_state, num_prefix, num_suf
         else:
             segment = [(word, random.randint(num_prefix + 1, num_state - num_suffix))]
         segmented_corpus.append((segment, 0))
+    return segmented_corpus
+
+def _random_segment_wrapper(args) -> list:
+    partition_id, corpus, num_state, num_prefix, num_suffix = args
+    print('Random Seg ID:', partition_id, 
+          'Host:', socket.gethostname(), 
+          'PID:', os.getpid(),
+          'Corpus size:', len(corpus), 
+          'started...')
+    model_param = {
+        'num_state': num_state + 2,
+        'num_prefix': num_prefix,
+        'num_suffix': num_suffix,
+        'lexicon': {},
+        'state_freq': {k : 0 for k in range(num_state + 2)},
+        'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
+    }
+    segmented_corpus = _random_segment(corpus, num_state, num_prefix, num_suffix)
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)
     print('Random Seg ID:', partition_id, 'ended...')
@@ -136,7 +125,8 @@ def _split_partition(corpus, num_partitions):
     partitions = temp 
     return partitions
 
-def _map_segment(partition_id, model_param, corpus):
+def _map_segment(args):
+    partition_id, model_param, corpus = args
     """Map step function for multiprocessing."""
     print('Seg ID:', partition_id, 
           'Host:', socket.gethostname(), 
