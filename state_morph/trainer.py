@@ -33,12 +33,18 @@ class StateMorphTrainer(object):
         self.__stem_ubound = stem_ubound
         self.__bulk_prob = bulk_prob
         self.__io = StateMorphIO(model_path + '/' + model_name)
+        self.__init_model_param = None
         
     def __checkpoint(self, model, iteration, loss):
         print('Save checkpoint:', iteration, 'Loss:', loss)
         self.__io.write_binary_model_file(model, '{}_{}_{:.4f}.bin'.format(self.__model_name, iteration, loss), no_corpus=True)
         if iteration == 'FINAL':
             self.__io.write_segmented_file(model, '{}_{}_{:.4f}.txt'.format(self.__model_name, iteration, loss))
+    
+    def load_checkpoint(self, checkpoint_file):
+        model = StateMorphIO().load_model_from_binary_file(checkpoint_file)
+        self.__init_model_param = model.get_model_dict()
+        self.__init_loss = model.compute_encoding_cost()
         
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
         """Load corpus to state morphology model."""
@@ -46,14 +52,15 @@ class StateMorphTrainer(object):
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
             self.__partitions = self.client.scatter(_split_partition(corpus, num_partitions))
-            futures =  [self.client.submit(_random_segment_wrapper, i, partition, 
-                                           self.num_state, self.__num_prefix, self.__num_suffix) 
-                        for i, partition in enumerate(self.__partitions)]
-            results = [result for _, result in as_completed(futures, with_results=True)]
-            reduce_step = self.client.submit(
-                _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), results)
-            self.__init_model_param, loss = reduce_step.result()
-            print('Init cost:', loss)
+            if self.__init_model_param is None:
+                futures =  [self.client.submit(_random_segment_wrapper, i, partition, 
+                                            self.num_state, self.__num_prefix, self.__num_suffix) 
+                            for i, partition in enumerate(self.__partitions)]
+                results = [result for _, result in as_completed(futures, with_results=True)]
+                reduce_step = self.client.submit(
+                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), results)
+                self.__init_model_param, self.__init_loss = reduce_step.result()
+            print('Corpus loaded...')
 
     def __segment_randomly(self, iteration, total_iteration):
         prob = 0
@@ -135,7 +142,7 @@ class StateMorphTrainer(object):
         if self._final_temp> 0 and self._current_temp > 0 and self._alpha > 0:
             temp = math.ceil((math.log2(self._final_temp) - math.log2(self._current_temp)) / math.log2(self._alpha))        
         total_iteration = min(temp, iteration)
-        
+        print('Init cost:', self.__init_loss)
         for _ in range(iteration):
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
             loss, model_param = self.__step(_, model_param, total_iteration)
