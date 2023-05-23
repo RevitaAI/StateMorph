@@ -95,7 +95,8 @@ class StateMorphTrainer(object):
         return loss, model_param
     
     def __general_segment(self, model_param):
-        scattered_model_param = self.client.scatter([model_param] * len(self.__partitions))
+        scattered_model_param = [model_param] * len(self.__partitions) 
+        # self.client.scatter([model_param] * len(self.__partitions))
         futures =  [self.client.submit(_map_segment, i, mp, partition) 
                     for i, (partition, mp) in enumerate(zip(self.__partitions, scattered_model_param))]
         results = [result for _, result in as_completed(futures, with_results=True)]
