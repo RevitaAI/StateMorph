@@ -65,7 +65,7 @@ class StateMorphTrainer(object):
     def __segment_randomly(self, iteration, total_iteration):
         prob = 0
         if self.__schedule == 'concave':
-            prob = (total_iteration / (iteration - total_iteration) + 10.0) / 9.0
+            prob = math.sqrt(1 - (iteration / total_iteration) ** 2)
         elif self.__schedule == 'convex':
             if iteration < 0.95 * total_iteration:
                 prob = 1.0 / (iteration + 1)
