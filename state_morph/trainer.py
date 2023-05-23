@@ -74,7 +74,7 @@ class StateMorphTrainer(object):
         
     def __step(self, iteration, model_param, total_iteration):
         print('Iteration:', iteration, '/', total_iteration, 'Temperature:', self._current_temp)
-        scattered_model_param = [model_param] * len(self.__partitions) # self.client.scatter([model_param] * len(self.__partitions))
+        scattered_model_param = self.client.scatter([model_param] * len(self.__partitions))
         futures =  [self.client.submit(_map_step, i, mp, partition, self._current_temp, 
                                        self.__segment_randomly(iteration, total_iteration)) 
                     for i, (partition, mp) in enumerate(zip(self.__partitions, scattered_model_param))]
