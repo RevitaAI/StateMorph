@@ -150,13 +150,13 @@ class BaseModel(object):
         segmented_corpus = []
         for segment, _ in self.segmented_corpus:
             word = ''.join([morph for morph, _ in segment])
-            new_segment, new_cost = self.__search(word, temperature=temperature)
+            new_segment, new_cost = self.__search(word, temperature=temperature, is_training=True)
             if new_cost != math.inf:
                 segmented_corpus.append((new_segment, new_cost))
             else:
                 segmented_corpus.append((segment, _))
         for word in corpus:
-            new_segment, new_cost = self.__search(word, temperature=temperature)
+            new_segment, new_cost = self.__search(word, temperature=temperature, is_training=True)
             if new_cost != math.inf:
                 segmented_corpus.append((new_segment, new_cost))
         self.update_segmented_corpus([_ for _ in segmented_corpus if _[1] > 0])
@@ -195,14 +195,17 @@ class BaseModel(object):
                             for j in range(self.num_state)] 
                            for i in range(self.num_state)]
         
-        
+    
     def compute_encoding_cost(self) -> float:
         # PrequentialCost
         transition_encoding_cost = self.__get_transition_encoding_cost()
         lexicon_encoding_cost, emissions_encoding_cost = self.__get_lexicon_and_emission_encoding_cost()
         return lexicon_encoding_cost + emissions_encoding_cost + transition_encoding_cost
 
-    def __search(self, word: str, temperature=0) -> tuple :
+    def segment(self, word: str) -> tuple:
+        return self.__search(word)
+    
+    def __search(self, word: str, temperature=0, is_training=False) -> tuple :
         to_be_segmented = '$' + word + '#'
         dp_matrix = [[{
             'state': state, 
@@ -242,7 +245,7 @@ class BaseModel(object):
                         morph = to_be_segmented[previous_cell['char_index'] + 1: current_cell['char_index'] + 1]
                         cost = previous_cell['cost']
                         cost += self.transition_costs[previous_cell['state']][current_cell['state']]
-                        cost += self.__get_emission_cost(morph, current_cell['state'])
+                        cost += self.__get_emission_cost(morph, current_cell['state'], is_training=is_training)
                         costs.append((idx, cost))
                     candidates = sorted(costs, key=lambda x: x[1])
                     window_size = int(max(min(temperature / 100 * len(candidates), len(candidates)), 1))
@@ -277,11 +280,11 @@ class BaseModel(object):
         print('Cost prec error:', float(format((cost - expected_cost) / expected_cost, '.5f')), '%')
     
 
-    def __get_emission_cost(self, morph: str, state: int) -> float:
+    def __get_emission_cost(self, morph: str, state: int, is_training=False) -> float:
         if state == self.num_state - 1:
             return 0
         state_dict = self.__morph2state2freq.get(morph, {})
-        if state not in state_dict:
+        if state not in state_dict and is_training:
             # morph is not yet emitted from this class: add it:
             # We are not sure what this means. It seems  to produce a reasonable freq, estimate in marginal cases
             # Roman,: 5.0 could be  the closest power of two to size of alphabet
@@ -296,6 +299,8 @@ class BaseModel(object):
             neg_part += self.__add_morph_neg_2[state]
             
             cost += pos_part - neg_part
+        elif state not in state_dict and not is_training:
+            cost = math.inf
         else:
             # d = morph.getFrequency() + constants.getPrior();
             d = state_dict[state] + BaseModel.PRIOR
