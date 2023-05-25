@@ -79,7 +79,7 @@ class StateMorphTrainer(object):
             prob = 1.0
         if prob < 0.0 or not iteration:
             prob = 0.0
-        return prob
+        return prob / 2
         
     def __step(self, iteration, model_param, total_iteration):
         print('Iteration:', iteration, '/', total_iteration, 'Temperature:', self._current_temp)
