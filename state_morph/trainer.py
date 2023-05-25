@@ -49,7 +49,6 @@ class StateMorphTrainer(object):
         
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
         """Load corpus to state morphology model."""
-        num_partitions = sum([_['nthreads'] for _ in self.client.scheduler_info()['workers'].values()])
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
             self.__partitions =self.client.scatter( _split_partition(corpus, self.__num_partitions))
