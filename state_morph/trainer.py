@@ -52,7 +52,7 @@ class StateMorphTrainer(object):
         num_partitions = sum([_['nthreads'] for _ in self.client.scheduler_info()['workers'].values()])
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
-            self.__partitions = _split_partition(self.client.scatter(corpus), self.__num_partitions)
+            self.__partitions =self.client.scatter( _split_partition(corpus, self.__num_partitions))
             if self.__init_model_param is None:
                 partition_with_arg = [
                     (i, partition, self.num_state, self.__num_prefix, self.__num_suffix)
