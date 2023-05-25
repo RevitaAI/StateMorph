@@ -16,6 +16,7 @@ cluster = LocalCluster(n_workers=n_workers)
 client = Client(cluster)
 trainer = StateMorphTrainer(
     client, 
+    n_workers,
     n_state,                    # Number of expected state
     model_path,                 # Save path for the model
     model_name,                 # Model name
