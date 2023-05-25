@@ -1,9 +1,10 @@
 from codecs import open
 from ez_setup import use_setuptools
 use_setuptools()
-from Cython.Distutils import build_ext
+from Cython.Build import cythonize
 from distutils.core import setup
 from distutils.extension import Extension
+from datetime import datetime
 
 import re
 main_py = open('state_morph/__init__.py', encoding='utf-8').read()
@@ -16,12 +17,12 @@ requires = [
 ]
 
 ext_modules=[
-    Extension("state_morph/core",       ["state_morph/core.py"])
+    Extension("state_morph.core", ["state_morph/core.pyx"]),
 ]
 
 setup(
     name='StateMorph',
-    version=metadata['version'],
+    version=metadata['version'] + datetime.now().strftime('+beta%Y%m%d'),
     author=metadata['author'],
     author_email='revita@cs.helsinki.fi',
     #   url='',
@@ -40,6 +41,5 @@ setup(
     scripts=[],
     install_requires=requires,
     extras_require={},
-    ext_modules=ext_modules,
-    cmdclass={'build_ext': build_ext},
+    ext_modules=cythonize(ext_modules, compiler_directives={'language_level': "3", 'embedsignature': True}),
 )
