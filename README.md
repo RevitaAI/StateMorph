@@ -14,11 +14,23 @@ import shutil
 
 cluster = LocalCluster(n_workers=n_workers) 
 client = Client(cluster)
-trainer = StateMorphTrainer(client, n_state, model_path, model_name, 
-                            init_temp=init_temp, final_temp=final_temp, alpha=alpha)
+trainer = StateMorphTrainer(
+    client, 
+    n_state,                    # Number of expected state
+    model_path,                 # Save path for the model
+    model_name,                 # Model name
+    init_temp=init_temp,        # Initial temperature for simulated annealing
+    final_temp=final_temp,      # Final temperature for simulated annealing
+    alpha=alpha,                # Alpha for simulated annealing
+    num_prefix=n_prefix,        # Number of prefixes
+    num_suffix=n_suffix,        # Number of suffix
+    affix_lbound=affix_lbound,  # Lower bound of the freq of affix states
+    stem_ubound=stem_ubound,    # Upper bound of the freq of stem states
+    bulk_prob=bulk_prob         # Probability of bulk deregistering morpheme
+)
 
-trainer.load_raw_corpus(wordlist)
-model = trainer.train(n_epoch)
+trainer.load_raw_corpus(wordlist_file)
+model = trainer.train(max_epoch)
 client.close()
 cluster.close()
 
@@ -38,8 +50,12 @@ cluster = SSHCluster([master_node] + worker_nodes,
 
 ```
 ## Running model
-(TBD)
 
 ```python
+from state_morph import StateMorphIO
+model = StateMorphIO().load_model_from_binary_file(bin_file_path)
+# model = StateMorphIO().load_model_from_text_files(
+#     num_state, num_prefix, num_suffix, segmented_file)
+model.segment('XXX')
 
 ```

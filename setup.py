@@ -16,7 +16,7 @@ requires = [
 ]
 
 ext_modules=[
-    Extension("state_morph/core",       ["state_morph/core.pyx"])
+    Extension("state_morph/core",       ["state_morph/core.py"])
 ]
 
 setup(
