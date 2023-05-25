@@ -10,7 +10,7 @@ from dask.distributed import as_completed
 
 
 class StateMorphTrainer(object):
-    def __init__(self, client, num_state, model_path, model_name,
+    def __init__(self, client, num_workers, num_state, model_path, model_name,
                  delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95, schedule='concave', 
                  num_prefix=0, num_suffix=0, affix_lbound=60, stem_ubound=150, bulk_prob = 0.15) -> None:
         assert schedule in ['concave', 'convex', 'linear'], 'Schedule must be one of concave, convex, linear'
@@ -32,6 +32,7 @@ class StateMorphTrainer(object):
         self.__affix_lbound = affix_lbound
         self.__stem_ubound = stem_ubound
         self.__bulk_prob = bulk_prob
+        self.__num_partitions = num_workers
         self.__io = StateMorphIO(model_path + '/' + model_name)
         self.__init_model_param = None
         
@@ -51,7 +52,7 @@ class StateMorphTrainer(object):
         num_partitions = sum([_['nthreads'] for _ in self.client.scheduler_info()['workers'].values()])
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
-            self.__partitions = self.client.scatter(_split_partition(corpus, num_partitions))
+            self.__partitions = _split_partition(self.client.scatter(corpus), self.__num_partitions)
             if self.__init_model_param is None:
                 partition_with_arg = [
                     (i, partition, self.num_state, self.__num_prefix, self.__num_suffix)
