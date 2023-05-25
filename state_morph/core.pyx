@@ -234,18 +234,25 @@ class BaseModel(object):
                         # Previous state should be stem or suffix
                         allowed_states = dp_matrix[self.num_prefix + 1: -1]
                     
+                    search_space = [
+                        cell 
+                        for chars in allowed_states
+                        for cell in chars[max(char_idx - BaseModel.MORPH_SIZE, 0): char_idx]
+                    ]
+                    
                     if searching_end:
                         allowed_states = dp_matrix[self.num_prefix + 1: -1]
+                        search_space = [cell for chars in allowed_states for cell in chars[-2:-1]]
                     
-                    search_space = [cell 
-                                    for chars in allowed_states
-                                    for cell in chars[max(char_idx - BaseModel.MORPH_SIZE, int(searching_end)): char_idx]]
+                    
                     costs = []
                     for idx, previous_cell in enumerate(search_space):
-                        morph = to_be_segmented[previous_cell['char_index'] + 1: current_cell['char_index'] + 1]
+                        morph = '#'
                         cost = previous_cell['cost']
                         cost += self.transition_costs[previous_cell['state']][current_cell['state']]
-                        cost += self.__get_emission_cost(morph, current_cell['state'], is_training=is_training)
+                        if not searching_end:
+                            morph = to_be_segmented[previous_cell['char_index'] + 1: current_cell['char_index'] + 1]
+                            cost += self.__get_emission_cost(morph, current_cell['state'], is_training=is_training)
                         costs.append((idx, cost))
                     candidates = sorted(costs, key=lambda x: x[1])
                     window_size = int(max(min(temperature / 100 * len(candidates), len(candidates)), 1))
@@ -254,7 +261,8 @@ class BaseModel(object):
                     current_cell['previous'] = search_space[idx]
                     current_cell['cost'] = cost
                     if not searching_end:
-                        current_cell['morph'] = to_be_segmented[search_space[idx]['char_index'] + 1: current_cell['char_index'] + 1]
+                        current_cell['morph'] = to_be_segmented[search_space[idx]['char_index'] + 1: 
+                                                                current_cell['char_index'] + 1]
         p = dp_matrix[-1][-1]
         cost = p['cost']
         reversed_path = []
