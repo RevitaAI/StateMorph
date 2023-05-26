@@ -13,6 +13,7 @@ metadata = dict(re.findall("__([a-z]+)__ = '([^']+)'", main_py))
 requires = [
     'dask>=2022.1.0',
     'distributed>=2022.1.0',
+    'bokeh >= 2.1.1',
     'numpy'
 ]
 
