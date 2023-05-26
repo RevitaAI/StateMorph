@@ -28,6 +28,7 @@ setup(
     #   url='',
     description='A tool for unsupervised and semi-supervised morphological segmentation',
     packages=['state_morph'],
+    package_data={'state_morph': ["py.typed", "*.pyi", "**/*.pyi"]},
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Science/Research',
