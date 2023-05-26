@@ -43,7 +43,7 @@ class StateMorphTrainer(object):
     
     def load_checkpoint(self, checkpoint_file):
         model = StateMorphIO().load_model_from_binary_file(checkpoint_file)
-        self.__init_model_param = model.get_model_dict()
+        self.__init_model_param = model.get_param_dict()
         self.__init_loss = model.compute_encoding_cost()
         
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
