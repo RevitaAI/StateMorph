@@ -6,7 +6,6 @@ from .io import StateMorphIO
 import copy
 import random
 import math
-from dask.distributed import as_completed
 
 
 class StateMorphTrainer(object):
@@ -58,9 +57,8 @@ class StateMorphTrainer(object):
                     for i, partition in enumerate(self.__partitions)
                 ]
                 futures =  self.client.map(_random_segment_wrapper, partition_with_arg)
-                results = [result for _, result in as_completed(futures, with_results=True)]
                 reduce_step = self.client.submit(
-                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), results)
+                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), futures)
                 self.__init_model_param, self.__init_loss = reduce_step.result()
             print('Corpus loaded...')
 
@@ -87,9 +85,8 @@ class StateMorphTrainer(object):
             (i, model_param, partition, self._current_temp, self.__segment_randomly(iteration, total_iteration))
             for i, partition in enumerate(self.__partitions)]
         futures =  self.client.map(_map_step, partition_with_arg)
-        results = [result for _, result in as_completed(futures, with_results=True)]
         reduce_step = self.client.submit(
-                _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), results)
+                _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), futures)
         model_param, loss = reduce_step.result()
         print('Reduce step finished...')
         print('Iteration: {}, Cost: {}'.format(iteration, loss))
@@ -99,8 +96,7 @@ class StateMorphTrainer(object):
         partition_with_arg = [(i, model_param, partition, is_final) 
                               for i, partition in enumerate(self.__partitions)]
         futures =  self.client.map(_map_segment, partition_with_arg)
-        results = [result for _, result in as_completed(futures, with_results=True)]
-        reduce_step = self.client.submit(_reduce_segment, results)
+        reduce_step = self.client.submit(_reduce_segment, futures)
         segmented_corpus = reduce_step.result()
         return segmented_corpus
     
