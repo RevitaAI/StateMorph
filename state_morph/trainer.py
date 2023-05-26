@@ -95,8 +95,9 @@ class StateMorphTrainer(object):
         print('Iteration: {}, Cost: {}'.format(iteration, loss))
         return loss, model_param
     
-    def __general_segment(self, model_param):
-        partition_with_arg = [(i, model_param, partition) for i, partition in enumerate(self.__partitions)]
+    def __general_segment(self, model_param, is_final=False):
+        partition_with_arg = [(i, model_param, partition, is_final) 
+                              for i, partition in enumerate(self.__partitions)]
         futures =  self.client.map(_map_segment, partition_with_arg)
         results = [result for _, result in as_completed(futures, with_results=True)]
         reduce_step = self.client.submit(_reduce_segment, results)
@@ -105,7 +106,7 @@ class StateMorphTrainer(object):
     
     def __collect(self, model_param):
         print('Final segmenting started...')
-        segmented_corpus = self.__general_segment(model_param)
+        segmented_corpus = self.__general_segment(model_param, is_final=True)
         print('Final segmenting finished...')
         return segmented_corpus
     

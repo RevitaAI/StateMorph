@@ -146,17 +146,17 @@ class BaseModel(object):
             self.update_model()
             self.update_counts()
     
-    def train_step(self, corpus=[], temperature=0):
+    def train_step(self, corpus=[], temperature=0, is_final=False):
         segmented_corpus = []
         for segment, _ in self.segmented_corpus:
             word = ''.join([morph for morph, _ in segment])
-            new_segment, new_cost = self.__search(word, temperature=temperature, is_training=True)
+            new_segment, new_cost = self.__search(word, temperature=temperature, is_training=not is_final)
             if new_cost != math.inf:
                 segmented_corpus.append((new_segment, new_cost))
             else:
                 segmented_corpus.append((segment, _))
         for word in corpus:
-            new_segment, new_cost = self.__search(word, temperature=temperature, is_training=True)
+            new_segment, new_cost = self.__search(word, temperature=temperature, is_training=not is_final)
             if new_cost != math.inf:
                 segmented_corpus.append((new_segment, new_cost))
         self.update_segmented_corpus([_ for _ in segmented_corpus if _[1] > 0])

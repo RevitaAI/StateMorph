@@ -126,7 +126,7 @@ def _split_partition(corpus, num_partitions):
     return partitions
 
 def _map_segment(args):
-    partition_id, model_param, corpus = args
+    partition_id, model_param, corpus, is_final = args
     """Map step function for multiprocessing."""
     print('Seg ID:', partition_id, 
           'Host:', socket.gethostname(), 
@@ -134,7 +134,7 @@ def _map_segment(args):
           'Corpus size:', len(corpus), 
           'started...')
     model = BaseModel(model_param)
-    _, segmented_corpus = model.train_step(corpus)
+    _, segmented_corpus = model.train_step(corpus, is_final=is_final)
     costs = [cost for _, cost in segmented_corpus if cost > 0]
     print('Map ID:', partition_id, 'ended...')
     return segmented_corpus, costs
