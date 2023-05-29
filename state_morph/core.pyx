@@ -38,6 +38,7 @@ class BaseModel(object):
         self.__morph2state2freq = {} # Morph dictionary {morph: {state: freq}}
         self.__state2char2counts = {} # State char counts {state: {char: freq}}
         self.transition_freq = [] # Transition frequency {from_state: {to_state: freq}}
+        self.transition_ctrl = {}
         self.lexicon_costs = []
         self.transition_costs = []
         self.segmented_corpus = []
@@ -69,6 +70,7 @@ class BaseModel(object):
         self.transition_freq = model_params['transition_freq']
         self.num_prefix = model_params['num_prefix']
         self.num_suffix = model_params['num_suffix']
+        self.transition_ctrl = model_params.get('transition_ctrl', {})
         self.update_counts()
 
     def update_counts(self):
@@ -221,28 +223,14 @@ class BaseModel(object):
                 searching_end = char_idx == len(word) + 1 and state == self.num_state - 1
                 if searching_middle or searching_end:
                     current_cell = dp_matrix[state][char_idx]
-                    if state <= self.num_prefix:
-                        # Current prefix state
-                        # Previous state must be prefix or $
-                        allowed_states = dp_matrix[: self.num_prefix + 1] 
-                    elif self.num_prefix < state < self.num_state - 1 - self.num_suffix:
-                        # Current stem state
-                        # Previous state should be prefix or stem or $
-                        allowed_states = dp_matrix[: self.num_state - 1 - self.num_suffix]
-                    else:
-                        # Current suffix state
-                        # Previous state should be stem or suffix
-                        allowed_states = dp_matrix[self.num_prefix + 1: -1]
-                    
                     search_space = [
                         cell 
-                        for chars in allowed_states
+                        for chars in dp_matrix[: -1]
                         for cell in chars[max(char_idx - BaseModel.MORPH_SIZE, 0): char_idx]
                     ]
                     
                     if searching_end:
-                        allowed_states = dp_matrix[self.num_prefix + 1: -1]
-                        search_space = [cell for chars in allowed_states for cell in chars[-2:-1]]
+                        search_space = [cell for chars in dp_matrix[1: -1] for cell in chars[-2:-1]]
                     
                     
                     costs = []
@@ -320,6 +308,7 @@ class BaseModel(object):
     def __get_transition_cost(self, state_a: int, state_b: int) -> float:
         cost = - math.log2((self.transition_freq[state_a][state_b] + BaseModel.PRIOR) / 
                            (self.state_freq.get(state_a, 0) + (self.num_state - 2)* BaseModel.PRIOR))
+        cost += math.inf * self.transition_ctrl.get((state_a, state_b), 0)
         return cost
 
 
