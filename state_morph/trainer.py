@@ -11,7 +11,8 @@ import math
 class StateMorphTrainer(object):
     def __init__(self, client, num_workers, num_state, model_path, model_name,
                  delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95, schedule='concave', 
-                 num_prefix=0, num_suffix=0, affix_lbound=60, stem_ubound=150, bulk_prob = 0.15) -> None:
+                 num_prefix=0, num_suffix=0, affix_lbound=60, stem_ubound=150, bulk_prob = 0.15,
+                 transition_ctrl={}) -> None:
         assert schedule in ['concave', 'convex', 'linear'], 'Schedule must be one of concave, convex, linear'
         assert 0 <= bulk_prob <= 1, 'Bulk probability must be in [0, 1]'
         assert num_state >= 2, 'Number of state must be greater than 2'
@@ -30,6 +31,7 @@ class StateMorphTrainer(object):
         self.__affix_lbound = affix_lbound
         self.__stem_ubound = stem_ubound
         self.__bulk_prob = bulk_prob
+        self.__transition_ctrl = transition_ctrl
         self.__num_partitions = num_workers
         self.__io = StateMorphIO(model_path + '/' + model_name)
         self.__init_model_param = None
@@ -53,18 +55,23 @@ class StateMorphTrainer(object):
             partitions = self.client.scatter([ (i, self.__io.base_path, partition)
                 for i, partition in enumerate(__partitions)
             ])
-            self.client.map(_dump_partitions, partitions)
+            futures = self.client.map(_dump_partitions, partitions)
+            assert sum(future.result() for future in futures) == self.__num_partitions, 'Dumping partitions failed'
             if self.__init_model_param is None:
                 partition_with_arg = self.client.scatter([
-                    (i, self.__io.base_path, self.num_state, self.__num_prefix, self.__num_suffix)
+                    (i, self.__io.base_path, self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl)
                     for i in range(self.__num_partitions)
                 ])
                 futures =  self.client.map(_random_segment_wrapper, partition_with_arg)
                 reduce_step = self.client.submit(
-                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), futures)
+                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
+                    futures)
                 self.__init_model_param, self.__init_loss = reduce_step.result()
             print('Corpus loaded...')
 
+    def debug_params(self):
+        print(self.__init_model_param)
+    
     def __segment_randomly(self, iteration, total_iteration):
         prob = 0
         if self.__schedule == 'concave':
@@ -89,7 +96,8 @@ class StateMorphTrainer(object):
             for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_step, partition_with_arg)
         reduce_step = self.client.submit(
-                _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), futures)
+                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
+                    futures)
         model_param, loss = reduce_step.result()
         print('Reduce step finished...')
         print('Iteration: {}, Cost: {}'.format(iteration, loss))
@@ -169,4 +177,5 @@ class StateMorphTrainer(object):
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
         self.__checkpoint(new_model, 'FINAL', new_model.compute_encoding_cost())
+        self.__io.remove_temp_files()
         return new_model

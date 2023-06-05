@@ -58,6 +58,7 @@ class BaseModel(object):
             'lexicon': {'{}_{}'.format(*k): v for k, v in self.lexicon.items()},
             'state_freq': self.state_freq,
             'transition_freq': self.transition_freq,
+            'transition_ctrl': self.transition_ctrl
         }
         return model_params
         
@@ -308,7 +309,7 @@ class BaseModel(object):
     def __get_transition_cost(self, state_a: int, state_b: int) -> float:
         cost = - math.log2((self.transition_freq[state_a][state_b] + BaseModel.PRIOR) / 
                            (self.state_freq.get(state_a, 0) + (self.num_state - 2)* BaseModel.PRIOR))
-        cost += math.inf * self.transition_ctrl.get((state_a, state_b), 0)
+        cost += math.inf * (not self.transition_ctrl.get((state_a, state_b), 0))
         return cost
 
 

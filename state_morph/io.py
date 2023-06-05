@@ -8,6 +8,7 @@ except ImportError:
 import re
 import os
 import h5py
+import shutil
 
 class StateMorphIO(object):
     """Class for reading and writing state morphologies."""
@@ -66,17 +67,20 @@ class StateMorphIO(object):
 
     def write_partition_file(self, partition_id, partition):
         """Write state morphology to a binary file."""
+        shutil.rmtree(os.path.join(self.base_path, 'tmp'), ignore_errors=True)
         os.makedirs(os.path.join(self.base_path, 'tmp'), exist_ok=True)
-        with h5py.File(os.path.join(self.base_path, 'tmp', 'partition_{}.h'.format(partition_id)), 'w') as dest_file:
+        with h5py.File(os.path.join(self.base_path, 'tmp', 'partition_{}.h5'.format(partition_id)), 'w') as dest_file:
             dest = dest_file.create_dataset(
                 'dataset', (len(partition),), dtype=h5py.special_dtype(vlen=str), chunks=True, compression="gzip")
             dest[:] = partition
             
     def load_partition_file(self, partition_id):
-        with h5py.File(os.path.join(self.base_path, 'tmp', 'partition_{}.h'.format(partition_id)), 'r') as f:
+        with h5py.File(os.path.join(self.base_path, 'tmp', 'partition_{}.h5'.format(partition_id)), 'r') as f:
             partition = [x.decode('utf-8') for x in f['dataset']] 
         return partition
-            
+    
+    def remove_temp_files(self):
+        shutil.rmtree(os.path.join(self.base_path, 'tmp'), ignore_errors=True)
     
     def __load_segments(self, model, raw_segments_str: str):
         segmented_corpus = []

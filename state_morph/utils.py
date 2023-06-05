@@ -8,7 +8,7 @@ import os
 def _map_step(args):
     """Map step function for multiprocessing."""
     partition_id, init_model_param, base_path, temperature, random_seg_prob = args
-    corpus = StateMorphIO(base_path).load_partition(partition_id)
+    corpus = StateMorphIO(base_path).load_partition_file(partition_id)
     print('Map ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
@@ -25,16 +25,17 @@ def _map_step(args):
     if len(to_be_random_segmented):
         random_segmented_corpus = _random_segment(
             to_be_random_segmented, init_model_param['num_state'] - 2, 
-            init_model_param['num_prefix'], init_model_param['num_suffix'])
+            init_model_param['num_prefix'], init_model_param['num_suffix'],
+            init_model_param['transition_ctrl'])
         model.update_segmented_corpus(segmented_corpus + random_segmented_corpus)
     model_param = model.get_param_dict()
     print('Map ID:', partition_id, 'ended...')
     return model_param
 
-_reduce_step_wrapper = lambda num_state, num_prefix, num_suffix: lambda map_outputs: \
-    _reduce_step(map_outputs, num_state, num_prefix, num_suffix)
+_reduce_step_wrapper = lambda num_state, num_prefix, num_suffix, transition_ctrl: lambda map_outputs: \
+    _reduce_step(map_outputs, num_state, num_prefix, num_suffix, transition_ctrl)
                 
-def _reduce_step(map_outputs, num_state, num_prefix, num_suffix):
+def _reduce_step(map_outputs, num_state, num_prefix, num_suffix, transition_ctrl):
     def _reduce(reduced_model_param, model_param):
         """Reduce step function for multiprocessing."""
         total_model_param = reduced_model_param
@@ -65,6 +66,7 @@ def _reduce_step(map_outputs, num_state, num_prefix, num_suffix):
         'lexicon': {},
         'state_freq': {k : 0 for k in range(num_state + 2)},
         'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
+        'transition_ctrl': transition_ctrl
     }
 
     for model_param in map_outputs:
@@ -72,23 +74,26 @@ def _reduce_step(map_outputs, num_state, num_prefix, num_suffix):
     _cost = BaseModel(_model_param).compute_encoding_cost()
     return _model_param, _cost        
 
-def _random_segment(corpus, num_state, num_prefix, num_suffix):
+def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl):
     segmented_corpus = []
     for word in corpus:
         if len(word) > 1:
-            bounds = sorted(random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)))
-            if bounds[-1] != len(word):
-                bounds.append(len(word))
-            if bounds[0] != 0:
-                bounds.insert(0, 0)
-            bounds = [(start, end) for start, end in zip(bounds[:-1], bounds[1:]) if start != end]
-            prefixes = [random.randint(1, num_prefix) for _ in range(random.randint(0, num_prefix))]
-            suffixes = [random.randint(num_state - num_suffix, num_state) for _ in range(random.randint(0, num_suffix))]
-            stems = [random.randint(num_prefix + 1, num_state - num_suffix) 
-                     for _ in range(len(bounds) - len(prefixes) - len(suffixes))]
+            states = []
+            while not len(states) or any([transition_ctrl.get(_) for _ in zip(states[:-1], states[1:])]):
+                bounds = sorted(random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)))
+                if bounds[-1] != len(word):
+                    bounds.append(len(word))
+                if bounds[0] != 0:
+                    bounds.insert(0, 0)
+                bounds = [(start, end) for start, end in zip(bounds[:-1], bounds[1:]) if start != end]
+                prefixes = [random.randint(1, num_prefix) for _ in range(random.randint(0, num_prefix))]
+                suffixes = [random.randint(num_state - num_suffix, num_state) for _ in range(random.randint(0, num_suffix))]
+                stems = [random.randint(num_prefix + 1, num_state - num_suffix) 
+                        for _ in range(len(bounds) - len(prefixes) - len(suffixes))]
+                states = prefixes + stems + suffixes
             segment = [
                 (word[start:end], state)
-                for (start, end), state in zip(bounds, prefixes + stems + suffixes)
+                for (start, end), state in zip(bounds, states)
             ]
         else:
             segment = [(word, random.randint(num_prefix + 1, num_state - num_suffix))]
@@ -96,8 +101,8 @@ def _random_segment(corpus, num_state, num_prefix, num_suffix):
     return segmented_corpus
 
 def _random_segment_wrapper(args) -> list:
-    partition_id, base_path, num_state, num_prefix, num_suffix = args
-    corpus = StateMorphIO(base_path).load_partition(partition_id)
+    partition_id, base_path, num_state, num_prefix, num_suffix, transition_ctrl = args
+    corpus = StateMorphIO(base_path).load_partition_file(partition_id)
     print('Random Seg ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
@@ -110,8 +115,9 @@ def _random_segment_wrapper(args) -> list:
         'lexicon': {},
         'state_freq': {k : 0 for k in range(num_state + 2)},
         'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
+        'transition_ctrl': transition_ctrl
     }
-    segmented_corpus = _random_segment(corpus, num_state, num_prefix, num_suffix)
+    segmented_corpus = _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl)
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)
     print('Random Seg ID:', partition_id, 'ended...')
@@ -130,7 +136,7 @@ def _split_partition(corpus, num_partitions):
 
 def _map_segment(args):
     partition_id, model_param, base_path, is_final = args
-    corpus = StateMorphIO(base_path).load_partition(partition_id)
+    corpus = StateMorphIO(base_path).load_partition_file(partition_id)
     """Map step function for multiprocessing."""
     print('Seg ID:', partition_id, 
           'Host:', socket.gethostname(), 
@@ -160,5 +166,5 @@ def _dump_partitions(args):
           'PID:', os.getpid(),
           'Corpus size:', len(partition), 
           'started...')
-    StateMorphIO(base_path).dump_partition(partition_id, partition)
-    return None
+    StateMorphIO(base_path).write_partition_file(partition_id, partition)
+    return True
