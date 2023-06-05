@@ -68,9 +68,6 @@ class StateMorphTrainer(object):
                     futures)
                 self.__init_model_param, self.__init_loss = reduce_step.result()
             print('Corpus loaded...')
-
-    def debug_params(self):
-        print(self.__init_model_param)
     
     def __segment_randomly(self, iteration, total_iteration):
         prob = 0

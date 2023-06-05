@@ -307,9 +307,11 @@ class BaseModel(object):
 
 
     def __get_transition_cost(self, state_a: int, state_b: int) -> float:
-        cost = - math.log2((self.transition_freq[state_a][state_b] + BaseModel.PRIOR) / 
+        if self.transition_ctrl.get((state_a, state_b), 1):
+            cost = - math.log2((self.transition_freq[state_a][state_b] + BaseModel.PRIOR) / 
                            (self.state_freq.get(state_a, 0) + (self.num_state - 2)* BaseModel.PRIOR))
-        cost += math.inf * (not self.transition_ctrl.get((state_a, state_b), 0))
+        else:
+            cost = math.inf
         return cost
 
 
