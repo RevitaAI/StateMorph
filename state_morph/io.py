@@ -17,7 +17,7 @@ class StateMorphIO(object):
         self.base_path = os.path.abspath(base_path)
 
     
-    def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, segmented_file: str, **kwargs) -> None:
+    def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, segmented_file: str, **kwargs) -> BaseModel:
         """Read state morphology from file."""
         model_params = {
             'num_state': num_state,
@@ -47,7 +47,7 @@ class StateMorphIO(object):
             for word in sorted(word2segment.keys()):
                 f.write(word2segment[word] + '\n')
         
-    def load_model_from_binary_file(self, filename: str, **kwargs) -> None:
+    def load_model_from_binary_file(self, filename: str, **kwargs) -> BaseModel:
         """Read state morphology from binary file."""
         model_data = pickle.load(open(os.path.join(self.base_path, filename), 'rb'))
         model = BaseModel(model_data['model_param'], **kwargs)

@@ -50,6 +50,15 @@ cluster = SSHCluster([master_node] + worker_nodes,
                      scheduler_options={"port": 0, "dashboard_address": ":8797"}) 
 
 ```
+
+## Fine tune an existing model
+
+```python
+trainer = StateMorphTrainer(...)
+trainer.load_checkpoint( BIN_MODEL_FILE )
+
+```
+
 ## Running model
 
 ```python
