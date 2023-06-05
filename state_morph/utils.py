@@ -7,8 +7,10 @@ import os
 
 def _map_step(args):
     """Map step function for multiprocessing."""
-    partition_id, init_model_param, base_path, temperature, random_seg_prob = args
-    corpus = StateMorphIO(base_path).load_partition_file(partition_id)
+    partition_id, base_path, temperature, random_seg_prob = args
+    io = StateMorphIO(base_path)
+    corpus = io.load_partition_file(partition_id)
+    init_model_param = io.load_temp_model_params()
     print('Map ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
@@ -135,8 +137,10 @@ def _split_partition(corpus, num_partitions):
     return partitions
 
 def _map_segment(args):
-    partition_id, model_param, base_path, is_final = args
-    corpus = StateMorphIO(base_path).load_partition_file(partition_id)
+    partition_id, base_path, is_final = args
+    io = StateMorphIO(base_path)
+    corpus = io.load_partition_file(partition_id)
+    model_param = io.load_temp_model_params()
     """Map step function for multiprocessing."""
     print('Seg ID:', partition_id, 
           'Host:', socket.gethostname(), 

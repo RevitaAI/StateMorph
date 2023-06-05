@@ -73,12 +73,19 @@ class StateMorphIO(object):
             dest[:] = partition
             dest_file.flush()
             dest_file.close()
-            
+    
     def load_partition_file(self, partition_id):
         with h5py.File(os.path.join(self.base_path, 'tmp', 'partition_{}.h5'.format(partition_id)), 'r') as f:
             partition = [x.decode('utf-8') for x in f['dataset']] 
             f.close()
         return partition
+    
+    def write_temp_model_params(self, model_param):
+        pickle.dump(model_param, open(os.path.join(self.base_path, 'tmp', 'model_param.bin'), 'wb'), 
+                    protocol=pickle.HIGHEST_PROTOCOL)
+    
+    def load_temp_model_params(self):
+        return pickle.load(open(os.path.join(self.base_path, 'tmp', 'model_param.bin'), 'rb'))
     
     def create_temporary_directory(self):
         shutil.rmtree(os.path.join(self.base_path, 'tmp'), ignore_errors=True)
