@@ -161,10 +161,11 @@ def _reduce_segment(map_outputs):
 def _dump_partitions(args):
     partition_id, base_path, partition = args
     """Map step function for multiprocessing."""
-    print('Seg ID:', partition_id, 
+    print('Dump ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
           'Corpus size:', len(partition), 
           'started...')
     StateMorphIO(base_path).write_partition_file(partition_id, partition)
+    print('Dump ID:', partition_id, 'ended...')
     return True

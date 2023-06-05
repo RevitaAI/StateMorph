@@ -67,17 +67,22 @@ class StateMorphIO(object):
 
     def write_partition_file(self, partition_id, partition):
         """Write state morphology to a binary file."""
-        shutil.rmtree(os.path.join(self.base_path, 'tmp'), ignore_errors=True)
-        os.makedirs(os.path.join(self.base_path, 'tmp'), exist_ok=True)
         with h5py.File(os.path.join(self.base_path, 'tmp', 'partition_{}.h5'.format(partition_id)), 'w') as dest_file:
             dest = dest_file.create_dataset(
                 'dataset', (len(partition),), dtype=h5py.special_dtype(vlen=str), chunks=True, compression="gzip")
             dest[:] = partition
+            dest_file.flush()
+            dest_file.close()
             
     def load_partition_file(self, partition_id):
         with h5py.File(os.path.join(self.base_path, 'tmp', 'partition_{}.h5'.format(partition_id)), 'r') as f:
             partition = [x.decode('utf-8') for x in f['dataset']] 
+            f.close()
         return partition
+    
+    def create_temporary_directory(self):
+        shutil.rmtree(os.path.join(self.base_path, 'tmp'), ignore_errors=True)
+        os.makedirs(os.path.join(self.base_path, 'tmp'), exist_ok=True)
     
     def remove_temp_files(self):
         shutil.rmtree(os.path.join(self.base_path, 'tmp'), ignore_errors=True)

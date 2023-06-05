@@ -55,6 +55,7 @@ class StateMorphTrainer(object):
             partitions = self.client.scatter([ (i, self.__io.base_path, partition)
                 for i, partition in enumerate(__partitions)
             ])
+            self.__io.create_temporary_directory()
             futures = self.client.map(_dump_partitions, partitions)
             results = self.client.gather(futures)
             assert sum(results) == self.__num_partitions, 'Dumping partitions failed'
