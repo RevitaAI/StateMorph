@@ -14,6 +14,7 @@ requires = [
     'dask>=2022.1.0',
     'distributed>=2022.1.0',
     'bokeh >= 2.1.1',
+    'h5py >= 3.7.0',
     'numpy'
 ]
 
