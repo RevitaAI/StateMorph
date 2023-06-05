@@ -56,7 +56,8 @@ class StateMorphTrainer(object):
                 for i, partition in enumerate(__partitions)
             ])
             futures = self.client.map(_dump_partitions, partitions)
-            assert sum(future.result() for future in futures) == self.__num_partitions, 'Dumping partitions failed'
+            results = self.client.gather(futures)
+            assert sum(results) == self.__num_partitions, 'Dumping partitions failed'
             if self.__init_model_param is None:
                 partition_with_arg = self.client.scatter([
                     (i, self.__io.base_path, self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl)
