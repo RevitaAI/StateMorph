@@ -1,4 +1,5 @@
 from .core import BaseModel
+from .io import StateMorphIO
 import random
 import socket
 import os
@@ -6,7 +7,8 @@ import os
 
 def _map_step(args):
     """Map step function for multiprocessing."""
-    partition_id, init_model_param, corpus, temperature, random_seg_prob = args
+    partition_id, init_model_param, base_path, temperature, random_seg_prob = args
+    corpus = StateMorphIO(base_path).load_partition(partition_id)
     print('Map ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
@@ -94,7 +96,8 @@ def _random_segment(corpus, num_state, num_prefix, num_suffix):
     return segmented_corpus
 
 def _random_segment_wrapper(args) -> list:
-    partition_id, corpus, num_state, num_prefix, num_suffix = args
+    partition_id, base_path, num_state, num_prefix, num_suffix = args
+    corpus = StateMorphIO(base_path).load_partition(partition_id)
     print('Random Seg ID:', partition_id, 
           'Host:', socket.gethostname(), 
           'PID:', os.getpid(),
@@ -126,7 +129,8 @@ def _split_partition(corpus, num_partitions):
     return partitions
 
 def _map_segment(args):
-    partition_id, model_param, corpus, is_final = args
+    partition_id, model_param, base_path, is_final = args
+    corpus = StateMorphIO(base_path).load_partition(partition_id)
     """Map step function for multiprocessing."""
     print('Seg ID:', partition_id, 
           'Host:', socket.gethostname(), 
@@ -147,3 +151,14 @@ def _reduce_segment(map_outputs):
     for segmented_corpus, costs in map_outputs:
         corpus = _reduce(corpus, segmented_corpus)
     return corpus
+
+def _dump_partitions(args):
+    partition_id, base_path, partition = args
+    """Map step function for multiprocessing."""
+    print('Seg ID:', partition_id, 
+          'Host:', socket.gethostname(), 
+          'PID:', os.getpid(),
+          'Corpus size:', len(partition), 
+          'started...')
+    StateMorphIO(base_path).dump_partition(partition_id, partition)
+    return None

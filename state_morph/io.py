@@ -7,6 +7,7 @@ except ImportError:
     import pickle
 import re
 import os
+import h5py
 
 class StateMorphIO(object):
     """Class for reading and writing state morphologies."""
@@ -63,7 +64,19 @@ class StateMorphIO(object):
         }
         pickle.dump(model_data, open(os.path.join(self.base_path, filename), 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
 
-    
+    def write_partition_file(self, partition_id, partition):
+        """Write state morphology to a binary file."""
+        os.makedirs(os.path.join(self.base_path, 'tmp'), exist_ok=True)
+        with h5py.File(os.path.join(self.base_path, 'tmp', 'partition_{}.h'.format(partition_id)), 'w') as dest_file:
+            dest = dest_file.create_dataset(
+                'dataset', (len(partition),), dtype=h5py.special_dtype(vlen=str), chunks=True, compression="gzip")
+            dest[:] = partition
+            
+    def load_partition_file(self, partition_id):
+        with h5py.File(os.path.join(self.base_path, 'tmp', 'partition_{}.h'.format(partition_id)), 'r') as f:
+            partition = [x.decode('utf-8') for x in f['dataset']] 
+        return partition
+            
     
     def __load_segments(self, model, raw_segments_str: str):
         segmented_corpus = []

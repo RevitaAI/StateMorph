@@ -1,7 +1,7 @@
 
 from .core import BaseModel
 from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _split_partition, \
-    _map_segment, _reduce_segment
+    _map_segment, _reduce_segment, _dump_partitions
 from .io import StateMorphIO
 import copy
 import random
@@ -23,7 +23,6 @@ class StateMorphTrainer(object):
         self._final_temp = final_temp
         self._alpha = alpha
         self._current_temp = init_temp
-        self.__partitions = None
         self.__model_name = model_name
         self.__schedule = schedule
         self.__num_prefix = num_prefix
@@ -50,11 +49,15 @@ class StateMorphTrainer(object):
         """Load corpus to state morphology model."""
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
-            self.__partitions = _split_partition(corpus, self.__num_partitions)
+            __partitions = _split_partition(corpus, self.__num_partitions)
+            partitions = self.client.scatter([ (i, self.__io.base_path, partition)
+                for i, partition in enumerate(__partitions)
+            ])
+            self.client.map(_dump_partitions, partitions)
             if self.__init_model_param is None:
                 partition_with_arg = self.client.scatter([
-                    (i, partition, self.num_state, self.__num_prefix, self.__num_suffix)
-                    for i, partition in enumerate(self.__partitions)
+                    (i, self.__io.base_path, self.num_state, self.__num_prefix, self.__num_suffix)
+                    for i in range(self.__num_partitions)
                 ])
                 futures =  self.client.map(_random_segment_wrapper, partition_with_arg)
                 reduce_step = self.client.submit(
@@ -82,8 +85,8 @@ class StateMorphTrainer(object):
     def __step(self, iteration, model_param, total_iteration):
         print('Iteration:', iteration, '/', total_iteration, 'Temperature:', self._current_temp)
         partition_with_arg = self.client.scatter([
-            (i, model_param, partition, self._current_temp, self.__segment_randomly(iteration, total_iteration))
-            for i, partition in enumerate(self.__partitions)])
+            (i, model_param, self.__io.base_path, self._current_temp, self.__segment_randomly(iteration, total_iteration))
+            for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_step, partition_with_arg)
         reduce_step = self.client.submit(
                 _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix), futures)
@@ -94,8 +97,8 @@ class StateMorphTrainer(object):
     
     def __general_segment(self, model_param, is_final=False):
         partition_with_arg = self.client.scatter([
-            (i, model_param, partition, is_final) 
-            for i, partition in enumerate(self.__partitions)])
+            (i, model_param, self.__io.base_path, is_final) 
+            for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_segment, partition_with_arg)
         reduce_step = self.client.submit(_reduce_segment, futures)
         segmented_corpus = reduce_step.result()
