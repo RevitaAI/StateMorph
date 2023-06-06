@@ -50,7 +50,7 @@ class StateMorphIO(object):
         self.__load_model_file(model, os.path.join(self.base_path, segmented_file))
         return model
 
-    def write_segmented_file(self, model: BaseModel, segmented_file: str):
+    def write_segmented_file(self, model: BaseModel, segmented_file: str) -> None:
         """
         Write StateMorph model to a file.
         
@@ -99,7 +99,7 @@ class StateMorphIO(object):
             model.update_segmented_corpus(model_data['segmented_corpus'], update_model=False)
         return model
 
-    def write_binary_model_file(self, model: BaseModel, filename: str, no_corpus=False):
+    def write_binary_model_file(self, model: BaseModel, filename: str, no_corpus=False) -> None:
         """
         Write StateMorph model to a binary file.
         
@@ -121,7 +121,7 @@ class StateMorphIO(object):
         }
         pickle.dump(model_data, open(os.path.join(self.base_path, filename), 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
 
-    def write_partition_file(self, partition_id: int, partition: list):
+    def write_partition_file(self, partition_id: int, partition: list) -> None:
         """
         Write partition to a temporary file.
         
@@ -141,7 +141,7 @@ class StateMorphIO(object):
             dest_file.flush()
             dest_file.close()
     
-    def load_partition_file(self, partition_id):
+    def load_partition_file(self, partition_id) -> list:
         '''
         Load partition from a temporary file.
         
@@ -161,7 +161,7 @@ class StateMorphIO(object):
             f.close()
         return partition
     
-    def write_temp_model_params(self, model_param):
+    def write_temp_model_params(self, model_param) -> None:
         '''
         Write model parameters to a temporary file.
         
@@ -174,7 +174,7 @@ class StateMorphIO(object):
         pickle.dump(model_param, open(os.path.join(self.base_path, 'tmp', 'model_param.bin'), 'wb'), 
                     protocol=pickle.HIGHEST_PROTOCOL)
     
-    def load_temp_model_params(self):
+    def load_temp_model_params(self) -> dict:
         '''
         Load model parameters from a temporary file.
         
@@ -187,7 +187,7 @@ class StateMorphIO(object):
         '''
         return pickle.load(open(os.path.join(self.base_path, 'tmp', 'model_param.bin'), 'rb'))
     
-    def create_temporary_directory(self):
+    def create_temporary_directory(self) -> None:
         '''
         Create a temporary directory for storing temporary files.
         '''
@@ -196,7 +196,7 @@ class StateMorphIO(object):
         shutil.rmtree(os.path.join(self.base_path, 'tmp'), ignore_errors=True)
         os.makedirs(os.path.join(self.base_path, 'tmp'), exist_ok=True)
     
-    def remove_temp_files(self):
+    def remove_temp_files(self) -> None:
         '''
         Remove temporary files.
         '''
