@@ -51,6 +51,7 @@ class StateMorphTrainer(object):
         """Load corpus to state morphology model."""
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
+            random.shuffle(corpus)
             __partitions = _split_partition(corpus, self.__num_partitions)
             partitions = self.client.scatter([ (i, self.__io.base_path, partition)
                 for i, partition in enumerate(__partitions)
