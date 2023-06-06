@@ -79,7 +79,8 @@ def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl):
     for word in corpus:
         if len(word) > 1:
             states = []
-            while not len(states) or any([not transition_ctrl.get(_, 1) for _ in zip(states[:-1], states[1:])]):
+            while not len(states) or any([not transition_ctrl.get(_, 1) 
+                                          for _ in zip([0] + states, states + [num_state + 1])]):
                 bounds = sorted(random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)))
                 if bounds[-1] != len(word):
                     bounds.append(len(word))
