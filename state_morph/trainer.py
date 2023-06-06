@@ -54,6 +54,10 @@ class StateMorphTrainer(object):
             The upper bound of the length of stems. Default is 150.
         bulk_prob: float
             The probability of bulk de-registration. Default is 0.15.
+        transition_ctrl: dict
+            The transition control dictionary. Default is empty.
+            The key is a tuple of (from_state, to_state), 
+            and the value 1 means the transition is allowed, 0 means not allowed.
             
             
         Examples
