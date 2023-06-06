@@ -2,6 +2,7 @@ import math
 import random
 from collections import Counter
 import numpy as np
+from pprint import pprint
 
 class BaseModel(object):
     PRIOR = 0.5
@@ -34,13 +35,8 @@ class BaseModel(object):
         self.state_freq = {} # State frequency {state: freq}
         self.num_prefix = 0
         self.num_suffix = 0
-        self.__state_size = {} # State size {state: morph count}
-        self.__morph2state2freq = {} # Morph dictionary {morph: {state: freq}}
-        self.__state2char2counts = {} # State char counts {state: {char: freq}}
         self.transition_freq = [] # Transition frequency {from_state: {to_state: freq}}
         self.transition_ctrl = {}
-        self.lexicon_costs = []
-        self.transition_costs = []
         self.segmented_corpus = []
         self.__load_model_params(model_param)
         # double result = 0.0;
@@ -50,7 +46,7 @@ class BaseModel(object):
         # return result;
         
     
-    def get_param_dict(self):
+    def get_param_dict(self) -> dict:
         model_params = {
             'num_state': self.num_state,
             'num_prefix': self.num_prefix,
@@ -62,7 +58,17 @@ class BaseModel(object):
         }
         return model_params
         
-    
+    def summary(self) -> None:
+        print('Number of states: {}'.format(self.num_state))
+        print('Number of prefix states: {}'.format(self.num_prefix))
+        print('Number of suffix states: {}'.format(self.num_suffix))
+        print('Number of lexicon: {}'.format(len(self.lexicon)))
+        print('Encoding cost: {}'.format(self.compute_encoding_cost()))
+        print('Transition ctrl: {}'.format(self.transition_ctrl))
+        print('State freq: {}'.format(sorted(self.state_freq.items(), key=lambda x: x[0])))
+        print('Transition freq: ')
+        pprint(self.transition_freq)
+
     def __load_model_params(self, model_params:dict):
         __map_key = lambda x: (x[0], int(x[1]))
         self.num_state = model_params['num_state']
@@ -74,12 +80,12 @@ class BaseModel(object):
         self.transition_ctrl = model_params.get('transition_ctrl', {})
         self.update_counts()
 
-    def update_counts(self):
-        self.__state_size = {k : 0 for k in range(self.num_state + 2)}
-        self.__state2char2counts = {k : {} for k in range(self.num_state + 2)}
+    def update_counts(self) -> None:
+        self.__state_size = {k : 0 for k in range(1, self.num_state - 1)}
         self.__state2morph2freq = {k: {} for k in range(1, self.num_state - 1)}
         self.__morph2state2freq = {}
-        self.__state_char_size = {k: 0 for k in range(self.num_state)}
+        __state2char2counts = {k : {} for k in range(1, self.num_state - 1)}
+        __state_char_size = {k: 0 for k in range(1, self.num_state - 1)}
         self.__charset = set()
         for (morph, state), count in self.lexicon.items():
             self.__state2morph2freq[state][morph] = count
@@ -87,17 +93,17 @@ class BaseModel(object):
                 self.__morph2state2freq[morph] = {}
             self.__morph2state2freq[morph][state] = count
             # lexicon.getMorphList(state).stream().map((Morphable m) -> m.getLength() + 1).reduce(Integer::sum).get();
-            self.__state_char_size[state] += len(morph) + 1
+            __state_char_size[state] += len(morph) + 1
             self.__state_size[state] += 1
             for char, _ in Counter(morph).items():
-                self.__state2char2counts[state][char] = self.__state2char2counts[state].get(char, 0) + _ * count
+                __state2char2counts[state][char] = __state2char2counts[state].get(char, 0) + _ * count
                 self.__charset.add(char)
         self.__num_bit_per_char = math.ceil(math.log(len(self.__charset) + 1) /  BaseModel.LOG_2)
         
         
-        self.transition_costs = [[self.__get_transition_cost(i, j) 
-                                  for j in range(self.num_state)] 
-                                 for i in range(self.num_state)]
+        self.__transition_costs = [[self.__get_transition_cost(i, j) 
+                                    for j in range(self.num_state)] 
+                                    for i in range(self.num_state)]
         # double result = 0.0;
         # for(double x = count ; x < count+added ; x++){
         #     result += log2(x);
@@ -114,8 +120,8 @@ class BaseModel(object):
         # double posPart = AmorphousMath.computeLogGammaChange(sumWithPriors, addedToSum);        
         self.__add_morph_pos = {
             (state, morph_size): __compute_log_gamma_change(
-                    self.__state_char_size[state] + (len(self.__charset) + 1) * BaseModel.PRIOR , morph_size + 1)
-            for state in range(1, self.num_state)
+                    __state_char_size[state] + (len(self.__charset) + 1) * BaseModel.PRIOR , morph_size + 1)
+            for state in range(1, self.num_state - 1)
             for morph_size in range(BaseModel.MORPH_SIZE + 1)
         }
                 
@@ -128,7 +134,7 @@ class BaseModel(object):
         # }
         self.__add_morph_neg_1 = {
             (state, char, count): __compute_log_gamma_change(
-                self.__state2char2counts[state].get(char, 2) + BaseModel.PRIOR, count)
+                __state2char2counts[state].get(char, 2) + BaseModel.PRIOR, count)
             for state in range(1, self.num_state - 1)
             for char in self.__charset
             for count in range(BaseModel.MORPH_SIZE + 1)
@@ -143,13 +149,13 @@ class BaseModel(object):
 
         
         
-    def update_segmented_corpus(self, segmented_corpus, update_model=True):
+    def update_segmented_corpus(self, segmented_corpus, update_model=True) -> None:
         self.segmented_corpus = segmented_corpus
         if update_model:
             self.update_model()
             self.update_counts()
     
-    def train_step(self, corpus=[], temperature=0, is_final=False):
+    def train_step(self, corpus=[], temperature=0, is_final=False) -> tuple:
         segmented_corpus = []
         for segment, _ in self.segmented_corpus:
             word = ''.join([morph for morph, _ in segment])
@@ -165,13 +171,13 @@ class BaseModel(object):
         self.update_segmented_corpus([_ for _ in segmented_corpus if _[1] > 0])
         return self.get_param_dict(), segmented_corpus
     
-    def update_model(self):
+    def update_model(self) -> None:
         lexicon = {}
-        state_freq = {k : 0 for k in range(self.num_state + 2)}
+        state_freq = {k : 0 for k in range(self.num_state)}
         transition_freq_dict = {}
         for segment, _ in self.segmented_corpus:
             p_state = 0
-            state_freq[0] = state_freq.get(0, 0) + 1
+            state_freq[0] += 1
             for morph, state in segment:
                 if (morph, state) not in lexicon:
                     lexicon[(morph, state)] = 0
@@ -181,13 +187,13 @@ class BaseModel(object):
                 if state not in transition_freq_dict[p_state]:
                     transition_freq_dict[p_state][state] = 0
                 transition_freq_dict[p_state][state] += 1
-                state_freq[state] = state_freq.get(state, 0) + 1
+                state_freq[state] += 1
                 p_state = state
 
         end_state = self.num_state - 1
         for segment, _ in self.segmented_corpus:
             state = segment[-1][1]
-            state_freq[end_state] = state_freq.get(end_state, 0) + 1
+            state_freq[end_state] += 1
             if state not in transition_freq_dict:
                 transition_freq_dict[state] = {}
             transition_freq_dict[state][end_state] = transition_freq_dict[state].get(end_state, 0) + 1
@@ -238,7 +244,7 @@ class BaseModel(object):
                     for idx, previous_cell in enumerate(search_space):
                         morph = '#'
                         cost = previous_cell['cost']
-                        cost += self.transition_costs[previous_cell['state']][current_cell['state']]
+                        cost += self.__transition_costs[previous_cell['state']][current_cell['state']]
                         if not searching_end:
                             morph = to_be_segmented[previous_cell['char_index'] + 1: current_cell['char_index'] + 1]
                             cost += self.__get_emission_cost(morph, current_cell['state'], is_training=is_training)
@@ -261,7 +267,7 @@ class BaseModel(object):
         segment = list(map(lambda x: (x['morph'], x['state']), reversed(reversed_path)))[:-1]
         return segment, cost
 
-    def debug_dp_matrix(self, word, dp_matrix, segment):
+    def debug_dp_matrix(self, word, dp_matrix, segment) -> None:
         to_be_segmented = '$' + word + '#'
         print('-------------------')
         print(','.join(to_be_segmented))
@@ -288,7 +294,7 @@ class BaseModel(object):
             # int morphLength = constants.allMorphs[morphId].length;
             # cost = - AmorphousMath.log2(constants.getPrior() / (s.classFrequency() + (s.classSize() + 1.0) * constants.getPrior()));
             cost = - math.log2(BaseModel.PRIOR / 
-                               (self.state_freq.get(state, 0) + (self.__state_size[state] + 1) * BaseModel.PRIOR))
+                               (self.state_freq[state] + (self.__state_size[state] + 1) * BaseModel.PRIOR))
             # cost += costOfAddingMorphToClass(state, morph)
             
             pos_part = self.__add_morph_pos[(state, len(morph))]
@@ -309,7 +315,7 @@ class BaseModel(object):
     def __get_transition_cost(self, state_a: int, state_b: int) -> float:
         if self.transition_ctrl.get((state_a, state_b), 1):
             cost = - math.log2((self.transition_freq[state_a][state_b] + BaseModel.PRIOR) / 
-                           (self.state_freq.get(state_a, 0) + (self.num_state - 2)* BaseModel.PRIOR))
+                           (self.state_freq[state_a] + (self.num_state - 2) * BaseModel.PRIOR))
         else:
             cost = math.inf
         return cost

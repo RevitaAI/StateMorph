@@ -4,6 +4,15 @@ import random
 import socket
 import os
 
+empty_model_param = lambda num_state, num_prefix, num_suffix, transition_ctrl: {
+    'num_state': num_state,
+    'num_prefix': num_prefix,
+    'num_suffix': num_suffix,
+    'lexicon': {},
+    'state_freq': {k : 0 for k in range(num_state)},
+    'transition_freq': [[0 for _ in range(num_state)] for _ in range(num_state)],
+    'transition_ctrl': transition_ctrl
+}
 
 def _map_step(args):
     """Map step function for multiprocessing."""
@@ -26,7 +35,7 @@ def _map_step(args):
         model_param, segmented_corpus = model.train_step(to_be_trained, temperature=temperature)
     if len(to_be_random_segmented):
         random_segmented_corpus = _random_segment(
-            to_be_random_segmented, init_model_param['num_state'] - 2, 
+            to_be_random_segmented, init_model_param['num_state'], 
             init_model_param['num_prefix'], init_model_param['num_suffix'],
             init_model_param['transition_ctrl'])
         model.update_segmented_corpus(segmented_corpus + random_segmented_corpus)
@@ -61,15 +70,7 @@ def _reduce_step(map_outputs, num_state, num_prefix, num_suffix, transition_ctrl
         return total_model_param
     
     
-    _model_param = {
-        'num_state': num_state + 2,
-        'num_prefix': num_prefix,
-        'num_suffix': num_suffix,
-        'lexicon': {},
-        'state_freq': {k : 0 for k in range(num_state + 2)},
-        'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
-        'transition_ctrl': transition_ctrl
-    }
+    _model_param = empty_model_param(num_state, num_prefix, num_suffix, transition_ctrl)
 
     for model_param in map_outputs:
         _model_param =_reduce(_model_param, model_param)
@@ -82,7 +83,7 @@ def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl):
         if len(word) > 1:
             states = []
             while not len(states) or any([not transition_ctrl.get(_, 1) 
-                                          for _ in zip([0] + states, states + [num_state + 1])]):
+                                          for _ in zip([0] + states, states + [num_state - 1])]):
                 bounds = sorted(random.sample(list(range(1, len(word))), random.randint(1, len(word) - 1)))
                 if bounds[-1] != len(word):
                     bounds.append(len(word))
@@ -90,8 +91,9 @@ def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl):
                     bounds.insert(0, 0)
                 bounds = [(start, end) for start, end in zip(bounds[:-1], bounds[1:]) if start != end]
                 prefixes = [random.randint(1, num_prefix) for _ in range(random.randint(0, num_prefix))]
-                suffixes = [random.randint(num_state - num_suffix, num_state) for _ in range(random.randint(0, num_suffix))]
-                stems = [random.randint(num_prefix + 1, num_state - num_suffix) 
+                suffixes = [random.randint(num_state - num_suffix - 2 , num_state - 2 )
+                            for _ in range(random.randint(0, num_suffix))]
+                stems = [random.randint(num_prefix + 1, num_state - num_suffix - 2) 
                         for _ in range(len(bounds) - len(prefixes) - len(suffixes))]
                 states = prefixes + stems + suffixes
             segment = [
@@ -111,15 +113,7 @@ def _random_segment_wrapper(args) -> list:
           'PID:', os.getpid(),
           'Corpus size:', len(corpus), 
           'started...')
-    model_param = {
-        'num_state': num_state + 2,
-        'num_prefix': num_prefix,
-        'num_suffix': num_suffix,
-        'lexicon': {},
-        'state_freq': {k : 0 for k in range(num_state + 2)},
-        'transition_freq': [[0 for _ in range(num_state + 2)] for _ in range(num_state + 2)],
-        'transition_ctrl': transition_ctrl
-    }
+    model_param = empty_model_param(num_state, num_prefix, num_suffix, transition_ctrl)
     segmented_corpus = _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl)
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)

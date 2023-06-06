@@ -3,20 +3,76 @@ from .core import BaseModel
 from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _split_partition, \
     _map_segment, _reduce_segment, _dump_partitions
 from .io import StateMorphIO
-import copy
+from dask.distributed import Client
 import random
 import math
 
 
 class StateMorphTrainer(object):
-    def __init__(self, client, num_workers, num_state, model_path, model_name,
+    def __init__(self, client: Client, num_workers: int, num_state: int, model_path: str, model_name: str,
                  delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95, schedule='concave', 
                  num_prefix=0, num_suffix=0, affix_lbound=60, stem_ubound=150, bulk_prob = 0.15,
                  transition_ctrl={}) -> None:
+        '''
+        The trainer class for StateMorph model. 
+        This class is responsible for training the model.
+        It should be instantiated with a client object, which is used to training with Dask.
+        
+        Parameters
+        ----------
+        client: dask.distributed.Client
+            The client object used for training with Dask
+        num_workers: int
+            Number of workers to use for training
+        num_state: int
+            Number of states in the model, including the start and end states
+        model_path: str
+            Path to the model directory
+        model_name: str
+            Name of the model
+        delta: float
+            The minimum change in loss to be considered as improvement.
+            If the change in loss is less than delta, the training will stop.
+        patience: int
+            The number of epochs to wait for improvement before early stopping.
+        init_temp: float
+            The initial temperature for simulated annealing. Default is 100.
+        final_temp: float
+            The final temperature for simulated annealing. Default is 1e-4.
+        alpha: float
+            The decay rate for simulated annealing. Default is 0.95.
+        schedule: str
+            The schedule for word-level simulated annealing (random segmentation). 
+            It can be one of 'concave', 'convex', 'linear'. Default is 'concave'.
+        num_prefix: int
+            Number of prefix states. Default is 0.
+        num_suffix: int
+            Number of suffix states. Default is 0.
+        affix_lbound: int
+            The lower bound of the length of affixes. Default is 60.
+        stem_ubound: int
+            The upper bound of the length of stems. Default is 150.
+        bulk_prob: float
+            The probability of bulk de-registration. Default is 0.15.
+            
+            
+        Examples
+        --------
+        >>> from dask.distributed import Client, LocalCluster
+        >>> from state_morph import StateMorphTrainer
+        >>> client = Client(LocalCluster(n_workers=4))
+        >>> trainer = StateMorphTrainer(client, 4, 10, 'model', 'model')
+        >>> trainer.load_raw_corpus('corpus.txt')
+        >>> trainer.train()
+        
+        
+        '''
+        
+        
         assert schedule in ['concave', 'convex', 'linear'], 'Schedule must be one of concave, convex, linear'
         assert 0 <= bulk_prob <= 1, 'Bulk probability must be in [0, 1]'
-        assert num_state >= 2, 'Number of state must be greater than 2'
-        assert num_state - num_prefix - num_suffix >= 2, 'Number of state must be greater than number of affixes'
+        assert num_state >= 3, 'Number of state must be greater than 3'
+        assert num_state - num_prefix - num_suffix >= 3, 'Number of state must be greater than number of affixes'
         self.client = client
         self.num_state = num_state
         self._delta = delta
@@ -42,13 +98,30 @@ class StateMorphTrainer(object):
         if iteration == 'FINAL':
             self.__io.write_segmented_file(model, '{}_{}_{:.4f}.txt'.format(self.__model_name, iteration, loss))
     
-    def load_checkpoint(self, checkpoint_file):
+    def load_checkpoint(self, checkpoint_file) -> None:
+        '''
+        Load a checkpoint file to resume training.
+        
+        Parameters
+        ----------
+        checkpoint_file: str
+            Path to the checkpoint file.
+        '''
+        
         model = StateMorphIO().load_model_from_binary_file(checkpoint_file)
         self.__init_model_param = model.get_param_dict()
         self.__init_loss = model.compute_encoding_cost()
         
     def load_raw_corpus(self, corpus_file, **kwargs) -> None:
-        """Load corpus to state morphology model."""
+        """
+        Load corpus to StateMorph model.
+        
+        Parameters
+        ----------
+        corpus_file: str
+            Path to the corpus file.
+        
+        """
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
             random.shuffle(corpus)
@@ -147,7 +220,20 @@ class StateMorphTrainer(object):
         return deregistered_model.compute_encoding_cost(), new_model_param
     
     def train(self, iteration=10) -> BaseModel:
-        """Train state morphology model."""
+        """
+        Train StateMorph model.
+        
+        Parameters
+        ----------
+        iteration: int
+            Number of iteration to train. Default is 10.
+        
+        Returns
+        -------
+        model: BaseModel
+            Trained StateMorph model.
+        
+        """
         p_loss = -1
         count = 0
         
