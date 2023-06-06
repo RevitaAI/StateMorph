@@ -154,7 +154,7 @@ class StateMorphTrainer(object):
         prob = 0
         if iteration < 0.95 * total_iteration:
             if self.__schedule == 'concave':
-                prob = math.sqrt(1 - (iteration /  0.95 * total_iteration) ** 2)
+                prob = math.sqrt(1 - (iteration /  (0.95 * total_iteration)) ** 2)
             elif self.__schedule == 'convex':
                 prob = 1.0 / ( 0.95 * iteration + 1)
             elif self.__schedule == 'linear':
