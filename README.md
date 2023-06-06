@@ -1,6 +1,6 @@
 # StateMorph
 
-A re-implementation for [StateMorph](https://link.springer.com/chapter/10.1007/978-3-319-68456-7_4) in python. Taking advantage of (Dask)[https://www.dask.org/] and its distributed library, together with python ecosystem.
+A re-implementation for [StateMorph](https://link.springer.com/chapter/10.1007/978-3-319-68456-7_4) in python. Taking advantage of [Dask](https://www.dask.org/) and its distributed library, together with python ecosystem.
 
 ## Training on local
 
