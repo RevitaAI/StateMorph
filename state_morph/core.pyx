@@ -2,7 +2,6 @@ import math
 import random
 from collections import Counter
 import numpy as np
-from pprint import pprint
 
 class BaseModel(object):
     PRIOR = 0.5
@@ -67,7 +66,8 @@ class BaseModel(object):
         print('Transition ctrl: {}'.format(self.transition_ctrl))
         print('State freq: {}'.format(sorted(self.state_freq.items(), key=lambda x: x[0])))
         print('Transition freq: ')
-        pprint(self.transition_freq)
+        for _ in self.transition_freq:
+            print(_)
 
     def __load_model_params(self, model_params:dict):
         __map_key = lambda x: (x[0], int(x[1]))
