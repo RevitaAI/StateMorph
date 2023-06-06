@@ -51,6 +51,7 @@ class StateMorphTrainer(object):
         """Load corpus to state morphology model."""
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
+            random.shuffle(corpus)
             __partitions = _split_partition(corpus, self.__num_partitions)
             partitions = self.client.scatter([ (i, self.__io.base_path, partition)
                 for i, partition in enumerate(__partitions)
@@ -69,6 +70,7 @@ class StateMorphTrainer(object):
                     _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
                     futures)
                 self.__init_model_param, self.__init_loss = reduce_step.result()
+            self.__io.write_temp_model_params(self.__init_model_param)
             print('Corpus loaded...')
     
     def __segment_randomly(self, iteration, total_iteration):
@@ -88,32 +90,33 @@ class StateMorphTrainer(object):
             prob = 0.0
         return prob / 2
         
-    def __step(self, iteration, model_param, total_iteration):
+    def __step(self, iteration, total_iteration):
         print('Iteration:', iteration, '/', total_iteration, 'Temperature:', self._current_temp)
         partition_with_arg = self.client.scatter([
-            (i, model_param, self.__io.base_path, self._current_temp, self.__segment_randomly(iteration, total_iteration))
+            (i, self.__io.base_path, self._current_temp, self.__segment_randomly(iteration, total_iteration))
             for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_step, partition_with_arg)
         reduce_step = self.client.submit(
                     _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
                     futures)
         model_param, loss = reduce_step.result()
+        self.__io.write_temp_model_params(model_param)
         print('Reduce step finished...')
         print('Iteration: {}, Cost: {}'.format(iteration, loss))
         return loss, model_param
     
-    def __general_segment(self, model_param, is_final=False):
+    def __general_segment(self, is_final=False):
         partition_with_arg = self.client.scatter([
-            (i, model_param, self.__io.base_path, is_final) 
+            (i, self.__io.base_path, is_final) 
             for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_segment, partition_with_arg)
         reduce_step = self.client.submit(_reduce_segment, futures)
         segmented_corpus = reduce_step.result()
         return segmented_corpus
     
-    def __collect(self, model_param):
+    def __collect(self):
         print('Final segmenting started...')
-        segmented_corpus = self.__general_segment(model_param, is_final=True)
+        segmented_corpus = self.__general_segment(is_final=True)
         print('Final segmenting finished...')
         return segmented_corpus
     
@@ -132,18 +135,19 @@ class StateMorphTrainer(object):
             
         filtered_segmented_corpus = [
             (segment, cost)
-            for segment, cost in self.__general_segment(model_param)
+            for segment, cost in self.__general_segment()
             if all(k not in deregistered_morph for k in segment)
         ]
         deregistered_model = BaseModel(model_param)
         deregistered_model.update_segmented_corpus(filtered_segmented_corpus)
+        new_model_param = deregistered_model.get_param_dict()
+        self.__io.write_temp_model_params(new_model_param)
         print('Bulk de-registration finished...')
         print('Removed morphs:', len(deregistered_morph))
-        return deregistered_model.compute_encoding_cost(), deregistered_model.get_param_dict()
+        return deregistered_model.compute_encoding_cost(), new_model_param
     
     def train(self, iteration=10) -> BaseModel:
         """Train state morphology model."""
-        model_param = copy.deepcopy(self.__init_model_param)
         p_loss = -1
         count = 0
         
@@ -154,7 +158,7 @@ class StateMorphTrainer(object):
         print('Init cost:', self.__init_loss)
         for _ in range(iteration):
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
-            loss, model_param = self.__step(_, model_param, total_iteration)
+            loss, model_param = self.__step(_, total_iteration)
             if random.random() < (math.exp(_/(total_iteration / 3.0)) - 1) / (math.exp(3) - 1):
                 loss, model_param = self.__bulk_de_registration(model_param)
             
@@ -172,9 +176,9 @@ class StateMorphTrainer(object):
                 count = 0
                 p_loss = loss
         
-        segmented_corpus = self.__collect(model_param)
+        segmented_corpus = self.__collect()
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
         self.__checkpoint(new_model, 'FINAL', new_model.compute_encoding_cost())
-        self.__io.remove_temp_files()
+        # self.__io.remove_temp_files()
         return new_model
