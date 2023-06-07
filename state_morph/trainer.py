@@ -1,7 +1,7 @@
 
 from .core import BaseModel
 from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _split_partition, \
-    _map_segment, _reduce_segment, _dump_partitions
+    _map_segment, _reduce_segment, _dump_partitions, log_wrapper
 from .io import StateMorphIO
 from dask.distributed import Client
 import random
@@ -97,7 +97,7 @@ class StateMorphTrainer(object):
         self.__init_model_param = None
         
     def __checkpoint(self, model, iteration, loss):
-        print('Save checkpoint:', iteration, 'Loss:', loss)
+        log_wrapper("distributed.scheduler", 'Save checkpoint: {} Loss: {:.4f}'.format(iteration, loss))
         self.__io.write_binary_model_file(model, '{}_{}_{:.4f}.bin'.format(self.__model_name, iteration, loss), no_corpus=True)
         if iteration == 'FINAL':
             self.__io.write_segmented_file(model, '{}_{}_{:.4f}.txt'.format(self.__model_name, iteration, loss))
@@ -148,7 +148,7 @@ class StateMorphTrainer(object):
                     futures)
                 self.__init_model_param, self.__init_loss = reduce_step.result()
             self.__io.write_temp_model_params(self.__init_model_param)
-            print('Corpus loaded...')
+            log_wrapper("distributed.scheduler", 'Corpus loaded...')
     
     def __segment_randomly(self, iteration, total_iteration):
         prob = 0
@@ -166,7 +166,8 @@ class StateMorphTrainer(object):
         return prob / 2
         
     def __step(self, iteration, total_iteration):
-        print('Iteration:', iteration, '/', total_iteration, 'Temperature:', self._current_temp)
+        log_wrapper("distributed.scheduler", 
+                    'Iteration: {} / {} Temperature: {}'.format(iteration, total_iteration, self._current_temp))
         partition_with_arg = self.client.scatter([
             (i, self.__io.base_path, self._current_temp, self.__segment_randomly(iteration, total_iteration))
             for i in range(self.__num_partitions)])
@@ -176,8 +177,8 @@ class StateMorphTrainer(object):
                     futures)
         model_param, loss = reduce_step.result()
         self.__io.write_temp_model_params(model_param)
-        print('Reduce step finished...')
-        print('Iteration: {}, Cost: {}'.format(iteration, loss))
+        log_wrapper("distributed.scheduler", 'Reduce step finished...')
+        log_wrapper("distributed.scheduler", 'Iteration: {}, Cost: {}'.format(iteration, loss))
         return loss, model_param
     
     def __general_segment(self, is_final=False):
@@ -190,13 +191,13 @@ class StateMorphTrainer(object):
         return segmented_corpus
     
     def __collect(self):
-        print('Final segmenting started...')
+        log_wrapper("distributed.scheduler", 'Final segmenting started...')
         segmented_corpus = self.__general_segment(is_final=True)
-        print('Final segmenting finished...')
+        log_wrapper("distributed.scheduler", 'Final segmenting finished...')
         return segmented_corpus
     
     def __bulk_de_registration(self, model_param):
-        print('Bulk de-registration started...')
+        log_wrapper("distributed.scheduler", 'Bulk de-registration started...')
         deregistered_morph = set()
         __map_key = lambda x: (x[0], int(x[1]))
         for k, count in model_param['lexicon'].items():
@@ -217,8 +218,8 @@ class StateMorphTrainer(object):
         deregistered_model.update_segmented_corpus(filtered_segmented_corpus)
         new_model_param = deregistered_model.get_param_dict()
         self.__io.write_temp_model_params(new_model_param)
-        print('Bulk de-registration finished...')
-        print('Removed morphs:', len(deregistered_morph))
+        log_wrapper("distributed.scheduler", 'Bulk de-registration finished...')
+        log_wrapper("distributed.scheduler", 'Removed morphs: {}'.format(len(deregistered_morph)))
         return deregistered_model.compute_encoding_cost(), new_model_param
     
     def train(self, iteration=10) -> BaseModel:
@@ -243,7 +244,7 @@ class StateMorphTrainer(object):
         if self._final_temp> 0 and self._current_temp > 0 and self._alpha > 0:
             temp = math.ceil((math.log2(self._final_temp) - math.log2(self._current_temp)) / math.log2(self._alpha))        
         total_iteration = min(temp, iteration)
-        print('Init cost:', self.__init_loss)
+        log_wrapper("distributed.scheduler", 'Initial cost: {}'.format(self.__init_loss))
         for _ in range(iteration):
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
             loss, model_param = self.__step(_, total_iteration)
@@ -254,7 +255,7 @@ class StateMorphTrainer(object):
             if abs(p_loss - loss) < self._delta and loss:
                 count += 1
                 if count == self._patience:
-                    print('Early stopping...')
+                    log_wrapper("distributed.scheduler", 'Early stopping...')
                     break
             elif self._current_temp < self._final_temp:
                 break

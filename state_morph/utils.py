@@ -3,6 +3,7 @@ from .io import StateMorphIO
 import random
 import socket
 import os
+import logging
 
 empty_model_param = lambda num_state, num_prefix, num_suffix, transition_ctrl: {
     'num_state': num_state,
@@ -14,18 +15,18 @@ empty_model_param = lambda num_state, num_prefix, num_suffix, transition_ctrl: {
     'transition_ctrl': transition_ctrl
 }
 
+log_wrapper = lambda logger, log: logging.getLogger(logger).info(log)
+
 def _map_step(args):
     """Map step function for multiprocessing."""
     partition_id, base_path, temperature, random_seg_prob = args
     io = StateMorphIO(base_path)
     corpus = io.load_partition_file(partition_id)
     init_model_param = io.load_temp_model_params()
-    print('Map ID:', partition_id, 
-          'Host:', socket.gethostname(), 
-          'PID:', os.getpid(),
-          'Corpus size:', len(corpus), 
-          'Random segmentation probability:', random_seg_prob,
-          'started...')
+    log = 'Map ID: {} Host: {} PID: {} Corpus size: {} Random segmentation probability: {} started...'.format(
+        partition_id, socket.gethostname(), os.getpid(), len(corpus), random_seg_prob
+    )
+    log_wrapper("distributed.worker", log)
     model = BaseModel(init_model_param)
     random.shuffle(corpus)
     to_be_trained = corpus[:int(len(corpus) * (1 - random_seg_prob))]
@@ -40,7 +41,7 @@ def _map_step(args):
             init_model_param['transition_ctrl'])
         model.update_segmented_corpus(segmented_corpus + random_segmented_corpus)
     model_param = model.get_param_dict()
-    print('Map ID:', partition_id, 'ended...')
+    log_wrapper("distributed.worker", 'Map ID: {} ended...'.format(partition_id))
     return model_param
 
 _reduce_step_wrapper = lambda num_state, num_prefix, num_suffix, transition_ctrl: lambda map_outputs: \
@@ -108,16 +109,15 @@ def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl):
 def _random_segment_wrapper(args) -> list:
     partition_id, base_path, num_state, num_prefix, num_suffix, transition_ctrl = args
     corpus = StateMorphIO(base_path).load_partition_file(partition_id)
-    print('Random Seg ID:', partition_id, 
-          'Host:', socket.gethostname(), 
-          'PID:', os.getpid(),
-          'Corpus size:', len(corpus), 
-          'started...')
+    log = 'Random Seg ID: {} Host: {} PID: {} Corpus size: {} started...'.format(
+        partition_id, socket.gethostname(), os.getpid(), len(corpus)
+    )
+    log_wrapper("distributed.worker", log)
     model_param = empty_model_param(num_state, num_prefix, num_suffix, transition_ctrl)
     segmented_corpus = _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl)
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)
-    print('Random Seg ID:', partition_id, 'ended...')
+    log_wrapper("distributed.worker", 'Random Seg ID: {} ended...'.format(partition_id))
     return model.get_param_dict()
 
 
@@ -137,15 +137,14 @@ def _map_segment(args):
     corpus = io.load_partition_file(partition_id)
     model_param = io.load_temp_model_params()
     """Map step function for multiprocessing."""
-    print('Seg ID:', partition_id, 
-          'Host:', socket.gethostname(), 
-          'PID:', os.getpid(),
-          'Corpus size:', len(corpus), 
-          'started...')
+    log = 'Seg ID: {} Host: {} PID: {} Corpus size: {} started...'.format(
+        partition_id, socket.gethostname(), os.getpid(), len(corpus)
+    )
+    log_wrapper("distributed.worker", log)
     model = BaseModel(model_param)
     _, segmented_corpus = model.train_step(corpus, is_final=is_final)
     costs = [cost for _, cost in segmented_corpus if cost > 0]
-    print('Map ID:', partition_id, 'ended...')
+    log_wrapper("distributed.worker", 'Map ID: {} ended...'.format(partition_id))
     return segmented_corpus, costs
 
 def _reduce_segment(map_outputs):
@@ -160,11 +159,10 @@ def _reduce_segment(map_outputs):
 def _dump_partitions(args):
     partition_id, base_path, partition = args
     """Map step function for multiprocessing."""
-    print('Dump ID:', partition_id, 
-          'Host:', socket.gethostname(), 
-          'PID:', os.getpid(),
-          'Corpus size:', len(partition), 
-          'started...')
+    log = 'Dump ID: {} Host: {} PID: {} Corpus size: {} started...'.format(
+        partition_id, socket.gethostname(), os.getpid(), len(partition)
+    )
+    log_wrapper("distributed.worker", log)
     StateMorphIO(base_path).write_partition_file(partition_id, partition)
-    print('Dump ID:', partition_id, 'ended...')
+    log_wrapper("distributed.worker", 'Dump ID: {} ended...'.format(partition_id))
     return True
