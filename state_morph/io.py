@@ -10,11 +10,12 @@ import re
 import os
 import h5py
 import shutil
+from copy import deepcopy
 
 class StateMorphIO(object):
     """Class for reading and writing state morphologies."""
 
-    def __init__(self, base_path='./'):
+    def __init__(self, base_path='./', charset=None):
         """
         Initialize StateMorphIO object.
         
@@ -25,7 +26,9 @@ class StateMorphIO(object):
         
         """
         self.base_path = os.path.abspath(base_path)
-
+        self.__charset = charset
+        if self.__charset is None:
+            self.__charset = set()
     
     def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, segmented_file: str, **kwargs) -> BaseModel:
         """
@@ -171,6 +174,9 @@ class StateMorphIO(object):
             Model parameters.
         
         '''
+        params = deepcopy(model_param)
+        if self.__charset:
+            params['charset'] = self.__charset
         pickle.dump(model_param, open(os.path.join(self.base_path, 'tmp', 'model_param.bin'), 'wb'), 
                     protocol=pickle.HIGHEST_PROTOCOL)
     
