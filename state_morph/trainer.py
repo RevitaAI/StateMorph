@@ -234,14 +234,14 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Removed morphs: {}'.format(len(deregistered_morph)))
         return deregistered_model.compute_encoding_cost(), new_model_param
     
-    def train(self, iteration=10) -> BaseModel:
+    def train(self, max_iteration=10) -> BaseModel:
         """
         Train StateMorph model.
         
         Parameters
         ----------
-        iteration: int
-            Number of iteration to train. Default is 10.
+        max_iteration: int
+            Maximal number of iteration to train. Default is 10.
         
         Returns
         -------
@@ -255,9 +255,9 @@ class StateMorphTrainer(object):
         temp = math.inf
         if self._final_temp> 0 and self._current_temp > 0 and self._alpha > 0:
             temp = math.ceil((math.log2(self._final_temp) - math.log2(self._current_temp)) / math.log2(self._alpha))        
-        total_iteration = min(temp, iteration)
+        total_iteration = min(temp, max_iteration)
         log_wrapper("distributed.scheduler", 'Initial cost: {}'.format(self.__init_loss))
-        for _ in range(iteration):
+        for _ in range(total_iteration):
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
             loss, model_param = self.__step(_, total_iteration)
             if random.random() < (math.exp(_/(total_iteration / 3.0)) - 1) / (math.exp(3) - 1):
