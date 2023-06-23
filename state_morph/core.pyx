@@ -78,6 +78,7 @@ class BaseModel(object):
         self.num_prefix = model_params['num_prefix']
         self.num_suffix = model_params['num_suffix']
         self.transition_ctrl = model_params.get('transition_ctrl', {})
+        self.__pre_charset = model_params.get('charset', set())
         self.update_counts()
 
     def update_counts(self) -> None:
@@ -86,7 +87,7 @@ class BaseModel(object):
         self.__morph2state2freq = {}
         __state2char2counts = {k : {} for k in range(1, self.num_state - 1)}
         __state_char_size = {k: 0 for k in range(1, self.num_state - 1)}
-        self.__charset = set()
+        self.__charset = {_ for _ in self.__pre_charset}
         for (morph, state), count in self.lexicon.items():
             self.__state2morph2freq[state][morph] = count
             if morph not in self.__morph2state2freq:

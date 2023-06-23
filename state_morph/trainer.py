@@ -12,7 +12,7 @@ class StateMorphTrainer(object):
     def __init__(self, client: Client, num_workers: int, num_state: int, model_path: str, model_name: str,
                  delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95, schedule='concave', 
                  num_prefix=0, num_suffix=0, affix_lbound=60, stem_ubound=150, bulk_prob = 0.15,
-                 transition_ctrl={}) -> None:
+                 transition_ctrl={}, charset=None) -> None:
         '''
         The trainer class for StateMorph model. 
         This class is responsible for training the model.
@@ -58,6 +58,9 @@ class StateMorphTrainer(object):
             The transition control dictionary. Default is empty.
             The key is a tuple of (from_state, to_state), 
             and the value 1 means the transition is allowed, 0 means not allowed.
+        charset: set
+            The character set dictionary. Default is empty.
+            Predefine character set so that model can have correct loss during training if character set is too big.
             
             
         Examples
@@ -95,6 +98,9 @@ class StateMorphTrainer(object):
         self.__num_partitions = num_workers
         self.__io = StateMorphIO(model_path + '/' + model_name)
         self.__init_model_param = None
+        self.__charset = charset
+        if self.__charset is None:
+            self.__charset = set()
         
     def __checkpoint(self, model, iteration, loss):
         log_wrapper("distributed.scheduler", 'Save checkpoint: {} Loss: {:.4f}'.format(iteration, loss))
@@ -147,6 +153,8 @@ class StateMorphTrainer(object):
                     _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
                     futures)
                 self.__init_model_param, self.__init_loss = reduce_step.result()
+            if self.__charset:
+                self.__init_model_param['charset'] = self.__charset
             self.__io.write_temp_model_params(self.__init_model_param)
             log_wrapper("distributed.scheduler", 'Corpus loaded...')
     
@@ -176,6 +184,8 @@ class StateMorphTrainer(object):
                     _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
                     futures)
         model_param, loss = reduce_step.result()
+        if self.__charset:
+            model_param['charset'] = self.__charset
         self.__io.write_temp_model_params(model_param)
         log_wrapper("distributed.scheduler", 'Reduce step finished...')
         log_wrapper("distributed.scheduler", 'Iteration: {}, Cost: {}'.format(iteration, loss))
@@ -217,6 +227,8 @@ class StateMorphTrainer(object):
         deregistered_model = BaseModel(model_param)
         deregistered_model.update_segmented_corpus(filtered_segmented_corpus)
         new_model_param = deregistered_model.get_param_dict()
+        if self.__charset:
+            new_model_param['charset'] = self.__charset
         self.__io.write_temp_model_params(new_model_param)
         log_wrapper("distributed.scheduler", 'Bulk de-registration finished...')
         log_wrapper("distributed.scheduler", 'Removed morphs: {}'.format(len(deregistered_morph)))

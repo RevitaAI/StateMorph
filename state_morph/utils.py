@@ -122,13 +122,13 @@ def _random_segment_wrapper(args) -> list:
 
 
 def _split_partition(corpus, num_partitions):
-    partition_size = len(corpus) // num_partitions
+    left_over = len(corpus) % num_partitions
+    partition_size = (len(corpus) - left_over) // num_partitions
     partitions = [corpus[i:i+partition_size]
-                    for i in range(0, len(corpus), partition_size)]
-    temp = partitions[:-1]
-    if num_partitions > 1:
-        temp[-1] += partitions[-1]
-    partitions = temp 
+                    for i in range(0, (len(corpus) - left_over), partition_size)]
+    if left_over:
+        for i, obj in enumerate(corpus[-left_over:]):
+            partitions[i].append(obj)
     return partitions
 
 def _map_segment(args):

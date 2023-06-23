@@ -161,7 +161,7 @@ class StateMorphIO(object):
             f.close()
         return partition
     
-    def write_temp_model_params(self, model_param) -> None:
+    def write_temp_model_params(self, model_param: dict) -> None:
         '''
         Write model parameters to a temporary file.
         
