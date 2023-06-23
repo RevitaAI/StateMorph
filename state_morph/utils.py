@@ -102,7 +102,7 @@ def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl):
                 for (start, end), state in zip(bounds, states)
             ]
         else:
-            segment = [(word, random.randint(num_prefix + 1, num_state - num_suffix))]
+            segment = [(word, random.randint(num_prefix + 1, num_state - num_suffix - 2))]
         segmented_corpus.append((segment, 0))
     return segmented_corpus
 
