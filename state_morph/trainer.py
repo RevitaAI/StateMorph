@@ -3,7 +3,7 @@ from .core import BaseModel
 from .utils import _map_step, _reduce_step_wrapper, _random_segment_wrapper, _split_partition, \
     _map_segment, _reduce_segment, _dump_partitions, log_wrapper
 from .io import StateMorphIO
-from dask.distributed import Client
+from dask.distributed import Client, wait
 import random
 import math
 
@@ -146,6 +146,7 @@ class StateMorphTrainer(object):
                     for i in range(self.__num_partitions)
                 ])
                 futures =  self.client.map(_random_segment_wrapper, partition_with_arg)
+                wait(futures)
                 reduce_step = self.client.submit(
                     _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
                     futures)
@@ -175,6 +176,7 @@ class StateMorphTrainer(object):
             (i, self.__io.base_path, self._current_temp, self.__segment_randomly(iteration, total_iteration))
             for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_step, partition_with_arg)
+        wait(futures)
         reduce_step = self.client.submit(
                     _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
                     futures)
@@ -189,6 +191,7 @@ class StateMorphTrainer(object):
             (i, self.__io.base_path, is_final) 
             for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_segment, partition_with_arg)
+        wait(futures)
         reduce_step = self.client.submit(_reduce_segment, futures)
         segmented_corpus = reduce_step.result()
         return segmented_corpus
