@@ -222,7 +222,7 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Removed morphs: {}'.format(len(deregistered_morph)))
         return loss, new_model_param
     
-    def train(self, max_iteration=10) -> BaseModel:
+    def train(self, max_iteration=10, bulk_dereg_every_n_epoch=0) -> BaseModel:
         """
         Train StateMorph model.
         
@@ -249,7 +249,8 @@ class StateMorphTrainer(object):
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
             loss, model_param = self.__step(_, total_iteration)
             if random.random() < (math.exp(_/(total_iteration / 3.0)) - 1) / (math.exp(3) - 1) and \
-                self.__bulk_prob > 0 and (self.__num_prefix > 0 or self.__num_suffix > 0):
+                self.__bulk_prob > 0 and (self.__num_prefix > 0 or self.__num_suffix > 0) or \
+                    bulk_dereg_every_n_epoch and _ % bulk_dereg_every_n_epoch == 0:
                 loss, model_param = self.__bulk_de_registration(model_param)
             
             # Early stopping
