@@ -46,10 +46,12 @@ from dask.distributed import Client, SSHCluster
 
 cluster = SSHCluster([master_node] + worker_nodes, 
                      connect_options={"known_hosts": None, 'username': 'XXXX'},
-                     worker_options={'n_workers': n_worker},
+                     worker_options={'n_workers': n_worker, 'memory_limit': None}, 
                      scheduler_options={"port": 0, "dashboard_address": ":8797"}) 
 
 ```
+
+NB: Dask share memory with worker evenly. Yet *Reduce* may require extra memory than *Map*. Reset `memory_limit` to meet the requirement.
 
 ## Fine tune an existing model
 
