@@ -79,6 +79,7 @@ class BaseModel(object):
         self.num_suffix = model_params['num_suffix']
         self.transition_ctrl = model_params.get('transition_ctrl', {})
         self.__pre_charset = model_params.get('charset', set())
+        self.__deregistered_morph = model_params.get('deregistered_morph', set())
         self.update_counts()
 
     def update_counts(self) -> None:
@@ -169,7 +170,11 @@ class BaseModel(object):
             new_segment, new_cost = self.__search(word, temperature=temperature, is_training=not is_final)
             if new_cost != math.inf:
                 segmented_corpus.append((new_segment, new_cost))
-        self.update_segmented_corpus([_ for _ in segmented_corpus if _[1] > 0])
+        segmented_corpus = [(segment, cost) 
+            for segment, cost in segmented_corpus 
+            if cost > 0 and all(k not in self.__deregistered_morph for k in segment)
+        ]
+        self.update_segmented_corpus(segmented_corpus)
         return self.get_param_dict(), segmented_corpus
     
     def update_model(self) -> None:

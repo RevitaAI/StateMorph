@@ -183,19 +183,15 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Reduce step finished...')
         log_wrapper("distributed.scheduler", 'Iteration: {}, Cost: {}'.format(iteration, loss))
         return loss, model_param
-    
-    def __general_segment(self, is_final=False):
+        
+    def __collect(self):
+        log_wrapper("distributed.scheduler", 'Final segmenting started...')
         partition_with_arg = self.client.scatter([
-            (i, self.__io.base_path, is_final) 
+            (i, self.__io.base_path) 
             for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_segment, partition_with_arg)
         reduce_step = self.client.submit(_reduce_segment, futures)
         segmented_corpus = reduce_step.result()
-        return segmented_corpus
-    
-    def __collect(self):
-        log_wrapper("distributed.scheduler", 'Final segmenting started...')
-        segmented_corpus = self.__general_segment(is_final=True)
         log_wrapper("distributed.scheduler", 'Final segmenting finished...')
         return segmented_corpus
     
@@ -211,19 +207,20 @@ class StateMorphTrainer(object):
             elif self.__num_prefix < state <= self.num_state - self.__num_suffix and count > self.__stem_ubound and \
                 random.random() < self.__bulk_prob:
                 deregistered_morph.add((morph, state))
-            
-        filtered_segmented_corpus = [
-            (segment, cost)
-            for segment, cost in self.__general_segment()
-            if all(k not in deregistered_morph for k in segment)
-        ]
-        deregistered_model = BaseModel(model_param)
-        deregistered_model.update_segmented_corpus(filtered_segmented_corpus)
-        new_model_param = deregistered_model.get_param_dict()
+        
+        model_param['deregistered_morph'] = deregistered_morph
+        self.__io.write_temp_model_params(model_param)
+        partition_with_arg = self.client.scatter([
+            (i, self.__io.base_path, 0.0, 0.0) for i in range(self.__num_partitions)])
+        futures =  self.client.map(_map_step, partition_with_arg)
+        reduce_step = self.client.submit(
+                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
+                    futures)
+        new_model_param, loss = reduce_step.result()
         self.__io.write_temp_model_params(new_model_param)
         log_wrapper("distributed.scheduler", 'Bulk de-registration finished...')
         log_wrapper("distributed.scheduler", 'Removed morphs: {}'.format(len(deregistered_morph)))
-        return deregistered_model.compute_encoding_cost(), new_model_param
+        return loss, new_model_param
     
     def train(self, max_iteration=10) -> BaseModel:
         """

@@ -132,7 +132,7 @@ def _split_partition(corpus, num_partitions):
     return partitions
 
 def _map_segment(args):
-    partition_id, base_path, is_final = args
+    partition_id, base_path = args
     io = StateMorphIO(base_path)
     corpus = io.load_partition_file(partition_id)
     model_param = io.load_temp_model_params()
@@ -142,7 +142,7 @@ def _map_segment(args):
     )
     log_wrapper("distributed.worker", log)
     model = BaseModel(model_param)
-    _, segmented_corpus = model.train_step(corpus, is_final=is_final)
+    _, segmented_corpus = model.train_step(corpus, is_final=True)
     costs = [cost for _, cost in segmented_corpus if cost > 0]
     log_wrapper("distributed.worker", 'Map ID: {} ended...'.format(partition_id))
     return segmented_corpus, costs
