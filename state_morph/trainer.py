@@ -198,7 +198,7 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Final segmenting finished...')
         return segmented_corpus
     
-    def __bulk_de_registration(self, model_param):
+    def __bulk_de_registration(self, model_param, last_iteration=False):
         log_wrapper("distributed.scheduler", 'Bulk de-registration started...')
         deregistered_morph = set()
         __map_key = lambda x: (x[0], int(x[1]))
@@ -213,7 +213,7 @@ class StateMorphTrainer(object):
                 r < self.__bulk_prob:
                 deregistered_morph.add((morph, state))
             elif self.__lexicon_limit and i >= self.__lexicon_limit and \
-                r < (i - self.__lexicon_limit + 1) / (lexicon_size - self.__lexicon_limit + 1):
+                (r < (i - self.__lexicon_limit + 1) / (lexicon_size - self.__lexicon_limit + 1) or last_iteration):
                 deregistered_morph.add((morph, state))
               
         model_param['deregistered_morph'] = deregistered_morph
@@ -259,7 +259,7 @@ class StateMorphTrainer(object):
             if random.random() < (math.exp(_/(total_iteration / 3.0)) - 1) / (math.exp(3) - 1) and \
                 (self.__bulk_prob > 0 and (self.__num_prefix > 0 or self.__num_suffix > 0) or self.__lexicon_limit) or \
                     bulk_dereg_every_n_epoch and _ % bulk_dereg_every_n_epoch == 0:
-                loss, model_param = self.__bulk_de_registration(model_param)
+                loss, model_param = self.__bulk_de_registration(model_param, last_iteration=_ == total_iteration - 1)
             
             # Early stopping
             if abs(p_loss - loss) < self._delta and loss:
