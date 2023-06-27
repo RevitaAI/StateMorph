@@ -12,7 +12,7 @@ class StateMorphTrainer(object):
     def __init__(self, client: Client, num_workers: int, num_state: int, model_path: str, model_name: str,
                  delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95, schedule='concave', 
                  num_prefix=0, num_suffix=0, affix_lbound=60, stem_ubound=150, bulk_prob = 0.15,
-                 transition_ctrl={}, charset=None) -> None:
+                 transition_ctrl={}, charset=None, lexicon_limit=0) -> None:
         '''
         The trainer class for StateMorph model. 
         This class is responsible for training the model.
@@ -61,6 +61,8 @@ class StateMorphTrainer(object):
         charset: set
             The character set dictionary. Default is empty.
             Predefine character set so that model can have correct loss during training if character set is too big.
+        lexicon_limit: int
+            The maximum number of words in the lexicon. Default is 0.
             
             
         Examples
@@ -96,6 +98,7 @@ class StateMorphTrainer(object):
         self.__bulk_prob = bulk_prob
         self.__transition_ctrl = transition_ctrl
         self.__num_partitions = num_workers
+        self.__lexicon_limit = lexicon_limit
         self.__io = StateMorphIO(model_path + '/' + model_name, charset=charset)
         self.__init_model_param = None
         
@@ -199,15 +202,20 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Bulk de-registration started...')
         deregistered_morph = set()
         __map_key = lambda x: (x[0], int(x[1]))
-        for k, count in model_param['lexicon'].items():
+        lexicon_size = len(model_param['lexicon'])
+        for i, (k, count) in enumerate(sorted(model_param['lexicon'].items(), key=lambda x: -x[1])):
             morph, state = __map_key(k.split('_'))
+            r = random.random()
             if (state <= self.__num_prefix or state > self.num_state - self.__num_suffix) and \
-                count < self.__affix_lbound and random.random() < self.__bulk_prob:
+                count < self.__affix_lbound and r < self.__bulk_prob:
                 deregistered_morph.add((morph, state))
             elif self.__num_prefix < state <= self.num_state - self.__num_suffix and count > self.__stem_ubound and \
-                random.random() < self.__bulk_prob:
+                r < self.__bulk_prob:
                 deregistered_morph.add((morph, state))
-        
+            elif self.__lexicon_limit and i >= self.__lexicon_limit and \
+                r < (i - self.__lexicon_limit + 1) / (lexicon_size - self.__lexicon_limit + 1):
+                deregistered_morph.add((morph, state))
+              
         model_param['deregistered_morph'] = deregistered_morph
         self.__io.write_temp_model_params(model_param)
         partition_with_arg = self.client.scatter([
