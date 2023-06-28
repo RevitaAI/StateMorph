@@ -177,7 +177,7 @@ class StateMorphIO(object):
         params = deepcopy(model_param)
         if self.__charset:
             params['charset'] = self.__charset
-        pickle.dump(model_param, open(os.path.join(self.base_path, 'tmp', 'model_param.bin'), 'wb'), 
+        pickle.dump(params, open(os.path.join(self.base_path, 'tmp', 'model_param.bin'), 'wb'), 
                     protocol=pickle.HIGHEST_PROTOCOL)
     
     def load_temp_model_params(self) -> dict:
