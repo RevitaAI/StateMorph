@@ -99,6 +99,7 @@ class StateMorphTrainer(object):
         self.__transition_ctrl = transition_ctrl
         self.__num_partitions = num_workers
         self.__lexicon_limit = lexicon_limit
+        self.__charset_size = charset is not None and len(charset) or 0
         self.__io = StateMorphIO(model_path + '/' + model_name, charset=charset)
         self.__init_model_param = None
         
@@ -135,9 +136,11 @@ class StateMorphTrainer(object):
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
             random.shuffle(corpus)
-            charset = set(''.join(corpus))
-            self.__io.set_charset(charset)
-            log_wrapper("distributed.scheduler", 'Charset size: {}'.format(len(charset)))
+            if self.__charset_size == 0:
+                charset = set(''.join(corpus))
+                self.__io.set_charset(charset)
+                self.__charset_size = len(charset)
+            log_wrapper("distributed.scheduler", 'Charset size: {}'.format(self.__charset_size))
             __partitions = _split_partition(corpus, self.__num_partitions)
             partitions = self.client.scatter([ (i, self.__io.base_path, partition)
                 for i, partition in enumerate(__partitions)
