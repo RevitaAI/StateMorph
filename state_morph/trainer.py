@@ -135,7 +135,9 @@ class StateMorphTrainer(object):
         with open(corpus_file, 'r', encoding='utf-8') as f:
             corpus = f.read().splitlines()
             random.shuffle(corpus)
-            self.__io.set_charset(set(''.join(corpus)))
+            charset = set(''.join(corpus))
+            self.__io.set_charset(charset)
+            log_wrapper("distributed.scheduler", 'Charset size: {}'.format(len(charset)))
             __partitions = _split_partition(corpus, self.__num_partitions)
             partitions = self.client.scatter([ (i, self.__io.base_path, partition)
                 for i, partition in enumerate(__partitions)
