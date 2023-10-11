@@ -30,6 +30,18 @@ class StateMorphIO(object):
         if self.__charset is None:
             self.__charset = set()
     
+    def set_charset(self, charset: set) -> None:
+        """
+        Set charset.
+        
+        Parameters
+        ----------
+        charset : set
+            Charset.
+        
+        """
+        self.__charset = charset
+    
     def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, segmented_file: str, **kwargs) -> BaseModel:
         """
         Read StateMorph from text file.
