@@ -342,7 +342,7 @@ class BaseModel(object):
                 sum_of_priors += BaseModel.PRIOR
                 length -= math.lgamma(self.transition_freq[cfrom][cto] + BaseModel.PRIOR) / BaseModel.LOG_2
                 length += math.lgamma(BaseModel.PRIOR) / BaseModel.LOG_2
-            length += math.lgamma(freq_sum) / BaseModel.LOG_2
+            length += math.lgamma(max(freq_sum, 1)) / BaseModel.LOG_2
             length -= math.lgamma(sum_of_priors) / BaseModel.LOG_2
         return length
     
