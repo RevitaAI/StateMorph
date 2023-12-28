@@ -244,6 +244,7 @@ class StateMorphTrainer(object):
         ----------
         max_iteration: int
             Maximal number of iteration to train. Default is 10.
+            Equivalent to distributed batch segmenting if set to 0.
         
         Returns
         -------
@@ -253,7 +254,7 @@ class StateMorphTrainer(object):
         """
         p_loss = -1
         count = 0
-        
+        model_param = self.__init_model_param
         temp = math.inf
         if self._final_temp> 0 and self._current_temp > 0 and self._alpha > 0:
             temp = math.ceil((math.log2(self._final_temp) - math.log2(self._current_temp)) / math.log2(self._alpha))        
