@@ -180,8 +180,9 @@ class StateMorphTrainer(object):
     def __step(self, iteration, total_iteration):
         log_wrapper("distributed.scheduler", 
                     'Iteration: {} / {} Temperature: {}'.format(iteration, total_iteration, self._current_temp))
+        random_seg_prob = self.__segment_randomly(iteration, total_iteration)
         partition_with_arg = self.client.scatter([
-            (i, self.__io.base_path, self._current_temp, self.__segment_randomly(iteration, total_iteration))
+            (i, self.__io.base_path, self._current_temp, random_seg_prob)
             for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_step, partition_with_arg)
         reduce_step = self.client.submit(
