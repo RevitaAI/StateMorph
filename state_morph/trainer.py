@@ -134,7 +134,7 @@ class StateMorphTrainer(object):
         
         """
         with open(corpus_file, 'r', encoding='utf-8') as f:
-            corpus = f.read().splitlines()
+            corpus = f.read().lower().splitlines()
             random.shuffle(corpus)
             if self.__charset_size == 0:
                 charset = set(''.join(corpus))
