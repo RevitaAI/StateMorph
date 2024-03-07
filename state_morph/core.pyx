@@ -37,6 +37,7 @@ class BaseModel(object):
         self.transition_freq = [] # Transition frequency {from_state: {to_state: freq}}
         self.transition_ctrl = {}
         self.segmented_corpus = []
+        self.__cached_segment = {}
         self.__load_model_params(model_param)
         # double result = 0.0;
         # for(double x = count ; x < count+added ; x++){
@@ -218,6 +219,13 @@ class BaseModel(object):
         return lexicon_encoding_cost + emissions_encoding_cost + transition_encoding_cost
 
     def segment(self, word: str) -> tuple:
+        if not len(self.__cached_segment) and len(self.segmented_corpus):
+            self.__cached_segment = {
+                ''.join([morph for morph, _ in segment]): (segment, cost)
+                for (segment, cost) in self.segmented_corpus
+            }
+        elif len(self.__cached_segment) and word in self.__cached_segment:
+            return self.__cached_segment[word]
         return self.__search(word)
     
     def __search(self, word: str, temperature=0, is_training=False) -> tuple :

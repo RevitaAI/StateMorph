@@ -103,9 +103,10 @@ class StateMorphTrainer(object):
         self.__io = StateMorphIO(model_path + '/' + model_name, charset=charset)
         self.__init_model_param = None
         
-    def __checkpoint(self, model, iteration, loss):
+    def __checkpoint(self, model, iteration, loss, save_corpus=False):
         log_wrapper("distributed.scheduler", 'Save checkpoint: {} Loss: {:.4f}'.format(iteration, loss))
-        self.__io.write_binary_model_file(model, '{}_{}_{:.4f}.bin'.format(self.__model_name, iteration, loss), no_corpus=True)
+        self.__io.write_binary_model_file(
+            model, '{}_{}_{:.4f}.bin'.format(self.__model_name, iteration, loss), no_corpus=not save_corpus)
         if iteration == 'FINAL':
             self.__io.write_segmented_file(model, '{}_{}_{:.4f}.txt'.format(self.__model_name, iteration, loss))
     
@@ -237,7 +238,7 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Removed morphs: {}'.format(len(deregistered_morph)))
         return loss, new_model_param
     
-    def train(self, max_iteration=10, bulk_dereg_every_n_epoch=0) -> BaseModel:
+    def train(self, max_iteration=10, bulk_dereg_every_n_epoch=0, save_corpus=False) -> BaseModel:
         """
         Train StateMorph model.
         
@@ -246,6 +247,12 @@ class StateMorphTrainer(object):
         max_iteration: int
             Maximal number of iteration to train. Default is 10.
             Equivalent to distributed batch segmenting if set to 0.
+            
+        bulk_dereg_every_n_epoch: int
+            Bulk de-registration every n epoch. Default is 0.
+            
+        save_corpus: bool
+            Save segmented corpus to model binary. Default is False.
         
         Returns
         -------
@@ -286,6 +293,6 @@ class StateMorphTrainer(object):
         segmented_corpus = self.__collect()
         new_model = BaseModel(model_param)
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
-        self.__checkpoint(new_model, 'FINAL', new_model.compute_encoding_cost())
+        self.__checkpoint(new_model, 'FINAL', new_model.compute_encoding_cost(), save_corpus=save_corpus)
         # self.__io.remove_temp_files()
         return new_model
