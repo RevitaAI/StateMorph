@@ -158,7 +158,7 @@ class BaseModel(object):
                 for (segment, cost) in segmented_corpus
             }
         if update_model:
-            self.__update_model(build_cache)
+            self.__update_model()
             self.__update_counts()
     
     def train_step(self, corpus=[], temperature=0, is_final=False) -> tuple:
@@ -181,7 +181,7 @@ class BaseModel(object):
         self.update_segmented_corpus(segmented_corpus)
         return self.get_param_dict(), segmented_corpus
     
-    def __update_model(self, build_cache) -> None:
+    def __update_model(self) -> None:
         lexicon = {}
         state_freq = {k : 0 for k in range(self.num_state)}
         end_state = self.num_state - 1
