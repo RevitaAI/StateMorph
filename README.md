@@ -31,7 +31,7 @@ trainer = StateMorphTrainer(
 )
 
 trainer.load_raw_corpus(wordlist_file)
-model = trainer.train(max_epoch)
+model = trainer.train(max_epoch, save_corpus=True)  # Store segmented training words in output model binary
 client.close()
 cluster.close()
 
@@ -65,9 +65,11 @@ trainer.load_checkpoint( BIN_MODEL_FILE )
 
 ```python
 from state_morph import StateMorphIO
-model = StateMorphIO().load_model_from_binary_file(bin_file_path)
+model = StateMorphIO().load_model_from_binary_file(bin_file_path, build_cache=True)
+# build_cache=True enables internal cache built from segmented words when available
+
 # model = StateMorphIO().load_model_from_text_files(
-#     num_state, num_prefix, num_suffix, segmented_file)
+#     num_state, num_prefix, num_suffix, segmented_file, build_cache=True)
 model.segment('XXX')
 
 ```

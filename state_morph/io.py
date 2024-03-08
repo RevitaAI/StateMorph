@@ -42,7 +42,8 @@ class StateMorphIO(object):
         """
         self.__charset = charset
     
-    def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, segmented_file: str, **kwargs) -> BaseModel:
+    def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, 
+                                   segmented_file: str, build_cache=False, **kwargs) -> BaseModel:
         """
         Read StateMorph from text file.
         
@@ -56,13 +57,15 @@ class StateMorphIO(object):
             Number of suffix states.
         segmented_file : str
             File name of segmented corpus.
+        build_cache : bool
+            If True, build cache for the model. Default is False.
         **kwargs : dict
         
         """
         from .utils import empty_model_param
         model_params = empty_model_param(num_state, num_prefix, num_suffix, kwargs.get('transition_ctrl', {}))
         model = BaseModel(model_params, **kwargs)
-        self.__load_model_file(model, os.path.join(self.base_path, segmented_file))
+        self.__load_model_file(model, os.path.join(self.base_path, segmented_file), build_cache)
         return model
 
     def write_segmented_file(self, model: BaseModel, segmented_file: str) -> None:
@@ -92,7 +95,7 @@ class StateMorphIO(object):
             for word in sorted(word2segment.keys()):
                 f.write(word2segment[word] + '\n')
         
-    def load_model_from_binary_file(self, filename: str, **kwargs) -> BaseModel:
+    def load_model_from_binary_file(self, filename: str, build_cache=False, **kwargs) -> BaseModel:
         """
         Read StateMorph model from binary file.
         
@@ -100,6 +103,8 @@ class StateMorphIO(object):
         ----------
         filename : str
             File name of binary file.
+        build_cache : bool
+            If True, build cache for the model. Default is False.
         
         Returns
         -------
@@ -111,7 +116,7 @@ class StateMorphIO(object):
         model_data = pickle.load(open(os.path.join(self.base_path, filename), 'rb'))
         model = BaseModel(model_data['model_param'], **kwargs)
         if len(model_data.get('segmented_corpus') or []):
-            model.update_segmented_corpus(model_data['segmented_corpus'], update_model=False)
+            model.update_segmented_corpus(model_data['segmented_corpus'], update_model=False, build_cache=build_cache)
         return model
 
     def write_binary_model_file(self, model: BaseModel, filename: str, no_corpus=False) -> None:
@@ -220,7 +225,7 @@ class StateMorphIO(object):
         '''
         shutil.rmtree(os.path.join(self.base_path, 'tmp'), ignore_errors=True)
     
-    def __load_segments(self, model, raw_segments_str: str):
+    def __load_segments(self, model, raw_segments_str: str, build_cache: bool) -> None:
         segmented_corpus = []
         for line in raw_segments_str.split('\n'):
             text = line.strip()
@@ -235,7 +240,7 @@ class StateMorphIO(object):
                     state = int(tmp[i * 2 + 1])
                     segments.append((morph, state))
                 segmented_corpus.append((segments, float(cost)))
-        model.update_segmented_corpus(segmented_corpus)
+        model.update_segmented_corpus(segmented_corpus, build_cache=build_cache)
                 
 
 
@@ -246,7 +251,6 @@ class StateMorphIO(object):
         return raw_segments_str
 
 
-    def __load_model_file(self, model, segmented_file: str) -> None:
+    def __load_model_file(self, model, segmented_file: str, build_cache: bool) -> None:
         raw_segments_str = self.__load_segmented_file(segmented_file)
-        self.__load_segments(model, raw_segments_str)
-            
+        self.__load_segments(model, raw_segments_str, build_cache)

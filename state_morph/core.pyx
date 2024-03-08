@@ -81,9 +81,9 @@ class BaseModel(object):
         self.transition_ctrl = model_params.get('transition_ctrl', {})
         self.__pre_charset = model_params.get('charset', set())
         self.__deregistered_morph = model_params.get('deregistered_morph', set())
-        self.update_counts()
+        self.__update_counts()
 
-    def update_counts(self) -> None:
+    def __update_counts(self) -> None:
         self.__state_size = {k : 0 for k in range(1, self.num_state - 1)}
         self.__state2morph2freq = {k: {} for k in range(1, self.num_state - 1)}
         self.__morph2state2freq = {}
@@ -150,13 +150,16 @@ class BaseModel(object):
             for state in range(1, self.num_state - 1)
         }
 
-        
-        
-    def update_segmented_corpus(self, segmented_corpus, update_model=True) -> None:
+    def update_segmented_corpus(self, segmented_corpus, update_model=True, build_cache=False) -> None:
         self.segmented_corpus = segmented_corpus
+        if build_cache:
+            self.__cached_segment = {
+                ''.join([morph for morph, _ in segment]): (segment, cost)
+                for (segment, cost) in segmented_corpus
+            }
         if update_model:
-            self.update_model()
-            self.update_counts()
+            self.__update_model(build_cache)
+            self.__update_counts()
     
     def train_step(self, corpus=[], temperature=0, is_final=False) -> tuple:
         segmented_corpus = []
@@ -178,11 +181,12 @@ class BaseModel(object):
         self.update_segmented_corpus(segmented_corpus)
         return self.get_param_dict(), segmented_corpus
     
-    def update_model(self) -> None:
+    def __update_model(self, build_cache) -> None:
         lexicon = {}
         state_freq = {k : 0 for k in range(self.num_state)}
+        end_state = self.num_state - 1
         transition_freq_dict = {}
-        for segment, _ in self.segmented_corpus:
+        for segment, cost in self.segmented_corpus:
             p_state = 0
             state_freq[0] += 1
             for morph, state in segment:
@@ -196,14 +200,10 @@ class BaseModel(object):
                 transition_freq_dict[p_state][state] += 1
                 state_freq[state] += 1
                 p_state = state
-
-        end_state = self.num_state - 1
-        for segment, _ in self.segmented_corpus:
-            state = segment[-1][1]
             state_freq[end_state] += 1
             if state not in transition_freq_dict:
                 transition_freq_dict[state] = {}
-            transition_freq_dict[state][end_state] = transition_freq_dict[state].get(end_state, 0) + 1
+            transition_freq_dict[state][end_state] = transition_freq_dict[state].get(end_state, 0) + 1            
 
         self.lexicon = lexicon
         self.state_freq = state_freq
@@ -219,14 +219,10 @@ class BaseModel(object):
         return lexicon_encoding_cost + emissions_encoding_cost + transition_encoding_cost
 
     def segment(self, word: str) -> tuple:
-        if not len(self.__cached_segment) and len(self.segmented_corpus):
-            self.__cached_segment = {
-                ''.join([morph for morph, _ in segment]): (segment, cost)
-                for (segment, cost) in self.segmented_corpus
-            }
-        elif len(self.__cached_segment) and word in self.__cached_segment:
+        try:
             return self.__cached_segment[word]
-        return self.__search(word)
+        except KeyError:
+            return self.__search(word)
     
     def __search(self, word: str, temperature=0, is_training=False) -> tuple :
         to_be_segmented = '$' + word + '#'
