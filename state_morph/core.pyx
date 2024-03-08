@@ -296,7 +296,10 @@ class BaseModel(object):
     def __get_emission_cost(self, morph: str, state: int, is_training=False) -> float:
         if state == self.num_state - 1:
             return 0
-        state_dict = self.__morph2state2freq.get(morph, {})
+        try:
+            state_dict = self.__morph2state2freq[morph]
+        except KeyError:
+            state_dict = {}
         if state not in state_dict and is_training:
             # morph is not yet emitted from this class: add it:
             # We are not sure what this means. It seems  to produce a reasonable freq, estimate in marginal cases
@@ -323,7 +326,11 @@ class BaseModel(object):
 
 
     def __get_transition_cost(self, state_a: int, state_b: int) -> float:
-        if self.transition_ctrl.get((state_a, state_b), 1):
+        try:
+            transition_ctrl = self.transition_ctrl[(state_a, state_b)]
+        except KeyError:
+            transition_ctrl = 1
+        if transition_ctrl:
             cost = - math.log2((self.transition_freq[state_a][state_b] + BaseModel.PRIOR) / 
                            (self.state_freq[state_a] + (self.num_state - 2) * BaseModel.PRIOR))
         else:
