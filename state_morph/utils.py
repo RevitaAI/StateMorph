@@ -136,6 +136,7 @@ def _map_segment(args):
     io = StateMorphIO(base_path)
     corpus = io.load_partition_file(partition_id)
     model_param = io.load_temp_model_params()
+    remaining_morphs = io.load_temp_file('remaining_morphs')
     """Map step function for multiprocessing."""
     log = 'Seg ID: {} Host: {} PID: {} Corpus size: {} started...'.format(
         partition_id, socket.gethostname(), os.getpid(), len(corpus)
@@ -144,17 +145,25 @@ def _map_segment(args):
     model = BaseModel(model_param)
     _, segmented_corpus = model.train_step(corpus, is_final=True)
     costs = [cost for _, cost in segmented_corpus if cost > 0]
+    pruned_segmented_corpus = []
+    if len(remaining_morphs):
+        pruned_segmented_corpus = [
+            (segments, cost) for (segments, cost) in segmented_corpus
+            if set(segments).issubset(remaining_morphs)
+        ]
     log_wrapper("distributed.worker", 'Map ID: {} ended...'.format(partition_id))
-    return segmented_corpus, costs
+    return segmented_corpus, pruned_segmented_corpus, costs
 
 def _reduce_segment(map_outputs):
     """Reduce step function for multiprocessing."""
     _reduce = lambda reduced_corpus, segmented_corpus: reduced_corpus + segmented_corpus
     
     corpus = []
-    for segmented_corpus, costs in map_outputs:
+    pruned_corpus = []
+    for segmented_corpus, pruned_segment_corpus, costs in map_outputs:
         corpus = _reduce(corpus, segmented_corpus)
-    return corpus
+        pruned_corpus = _reduce(pruned_corpus, pruned_segment_corpus)
+    return corpus, pruned_corpus
 
 def _dump_partitions(args):
     partition_id, base_path, partition = args

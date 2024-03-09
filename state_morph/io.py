@@ -181,6 +181,37 @@ class StateMorphIO(object):
             f.close()
         return partition
     
+    def write_temp_file(self, filename: str, data: object) -> None:
+        '''
+        Write data to a temporary file.
+        
+        Parameters
+        ----------
+        filename : str
+            File name.
+        data : object
+            Data to be written to the file.
+        
+        '''
+        pickle.dump(data, open(os.path.join(self.base_path, 'tmp', filename), 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
+        
+    def load_temp_file(self, filename: str) -> object:
+        '''
+        Load data from a temporary file.
+        
+        Parameters
+        ----------
+        filename : str
+            File name.
+        
+        Returns
+        -------
+        data : object
+            Data loaded from the file.
+        
+        '''
+        return pickle.load(open(os.path.join(self.base_path, 'tmp', filename), 'rb'))
+    
     def write_temp_model_params(self, model_param: dict) -> None:
         '''
         Write model parameters to a temporary file.

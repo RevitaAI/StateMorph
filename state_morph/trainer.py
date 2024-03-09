@@ -67,8 +67,8 @@ class StateMorphTrainer(object):
             The lexicon with frequency less than min_lexicon_freq will be pruned.
         min_pruned_remain: int
             The minimum number of pruned morphs to remain. Default is 0.
-            Stop pruning if the number of pruned morphs is less than min_pruned_remain.
-            Applied only if min_lexicon_freq is not 0.
+            Stop pruning if the number of remaining morphs is less than min_pruned_remain.
+            If 0, the pruning will not stop until the frequency of lexicon is less than min_lexicon_freq.
 
             
             
@@ -204,16 +204,36 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Iteration: {}, Cost: {}'.format(iteration, loss))
         return loss, model_param
         
-    def __collect(self):
+    def __collect(self, model_param):
+        __map_key = lambda x: (x[0], int(x[1]))
         log_wrapper("distributed.scheduler", 'Final segmenting started...')
+        pruned_model_param = None
+        pruned_segmented_corpus = []
+        if self.__min_lexicon_freq:
+            freq_dict = Counter(model_param['lexicon'].values())
+            total = len(model_param['lexicon'])
+                
+            pruned_size = 0
+            for prune_threshold in range(self.__min_lexicon_freq):
+                pruned_size += prune_threshold and freq_dict[prune_threshold] or 0
+                if total - pruned_size <= self.__min_pruned_remain:
+                    break
+            
+            pruned_model_param = deepcopy(model_param)
+            pruned_model_param['lexicon'] = {k: v for k, v in model_param['lexicon'].items() if v > prune_threshold}
+            remaining_morphs = [__map_key(_.split('_')) for _ in pruned_model_param['lexicon'].keys()]
+            self.__io.write_temp_file('remaining_morphs', remaining_morphs)
+            log_wrapper("distributed.scheduler", 'Prune threshold: {}'.format(prune_threshold))
+            log_wrapper("distributed.scheduler", 'Morphs remain: {}'.format(len(remaining_morphs)))
+        
         partition_with_arg = self.client.scatter([
             (i, self.__io.base_path) 
             for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_segment, partition_with_arg)
         reduce_step = self.client.submit(_reduce_segment, futures)
-        segmented_corpus = reduce_step.result()
+        segmented_corpus, pruned_segmented_corpus = reduce_step.result()
         log_wrapper("distributed.scheduler", 'Final segmenting finished...')
-        return segmented_corpus
+        return segmented_corpus, pruned_segmented_corpus, pruned_model_param
     
     def __bulk_de_registration(self, model_param, last_iteration=False):
         log_wrapper("distributed.scheduler", 'Bulk de-registration started...')
@@ -242,29 +262,7 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Bulk de-registration finished...')
         log_wrapper("distributed.scheduler", 'Removed morphs: {}'.format(len(deregistered_morph)))
         return loss, new_model_param
-    
-    def __prune_morphs(self, model_param, segmented_corpus):
-        log_wrapper("distributed.scheduler", 'Pruning morphs started...')
-        freq_dict = Counter(model_param['lexicon'].values())
-        total = len(model_param['lexicon'])
-            
-        pruned_size = 0
-        for prune_threshold in range(self.__min_lexicon_freq):
-            pruned_size += prune_threshold and freq_dict[prune_threshold] or 0
-            if total - pruned_size <= self.__min_pruned_remain:
-                break
-        
-        pruned_model_param = deepcopy(model_param)
-        pruned_model_param['lexicon'] = {k: v for k, v in model_param['lexicon'].items() if v >= prune_threshold}
-        remaining_morphs = pruned_model_param['lexicon'].keys()
-        pruned_segmented_corpus = [
-            (segments, cost) for (segments, cost) in segmented_corpus
-            if set(segments).issubset(remaining_morphs)
-        ]
-        log_wrapper("distributed.scheduler", 'Prune threshold: {}'.format(prune_threshold))
-        log_wrapper("distributed.scheduler", 'Morphs remain: {}'.format(len(remaining_morphs)))
-        return pruned_model_param, pruned_segmented_corpus
-        
+
     def train(self, max_iteration=10, bulk_dereg_every_n_epoch=0, save_corpus=False) -> BaseModel:
         """
         Train StateMorph model.
@@ -317,13 +315,12 @@ class StateMorphTrainer(object):
                 count = 0
                 p_loss = loss
         
-        segmented_corpus = self.__collect()
+        segmented_corpus, pruned_segmented_corpus, pruned_model_param = self.__collect(model_param)
         new_model = BaseModel(model_param)
         final_cost = new_model.compute_encoding_cost()
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
         self.__checkpoint(new_model, 'FINAL', final_cost, save_corpus=save_corpus)
-        if self.__min_lexicon_freq:
-            pruned_model_param, pruned_segmented_corpus = self.__prune_morphs(model_param, segmented_corpus)
+        if pruned_model_param and len(pruned_segmented_corpus):
             pruned_model = BaseModel(pruned_model_param)
             pruned_model.update_segmented_corpus(pruned_segmented_corpus, update_model=False)
             self.__checkpoint(pruned_model, 'PRUNED', final_cost, save_corpus=save_corpus)
