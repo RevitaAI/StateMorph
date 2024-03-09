@@ -6,13 +6,14 @@ from .io import StateMorphIO
 from dask.distributed import Client
 import random
 import math
-
+from copy import deepcopy
+from collections import Counter
 
 class StateMorphTrainer(object):
     def __init__(self, client: Client, num_workers: int, num_state: int, model_path: str, model_name: str,
                  delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95, schedule='concave', 
                  num_prefix=0, num_suffix=0, affix_lbound=60, stem_ubound=150, bulk_prob = 0.15,
-                 transition_ctrl={}, charset=None, lexicon_limit=0) -> None:
+                 transition_ctrl={}, charset=None, min_lexicon_freq=0, min_pruned_remain=0) -> None:
         '''
         The trainer class for StateMorph model. 
         This class is responsible for training the model.
@@ -61,8 +62,14 @@ class StateMorphTrainer(object):
         charset: set
             The character set dictionary. Default is empty.
             Predefine character set so that model can have correct loss during training if character set is too big.
-        lexicon_limit: int
-            The maximum number of words in the lexicon. Default is 0.
+        min_lexicon_freq: int
+            The minimum frequency of lexicon to be considered. Default is 0.
+            The lexicon with frequency less than min_lexicon_freq will be pruned.
+        min_pruned_remain: int
+            The minimum number of pruned morphs to remain. Default is 0.
+            Stop pruning if the number of pruned morphs is less than min_pruned_remain.
+            Applied only if min_lexicon_freq is not 0.
+
             
             
         Examples
@@ -82,6 +89,7 @@ class StateMorphTrainer(object):
         assert 0 <= bulk_prob <= 1, 'Bulk probability must be in [0, 1]'
         assert num_state >= 3, 'Number of state must be greater than 3'
         assert num_state - num_prefix - num_suffix >= 3, 'Number of state must be greater than number of affixes'
+        assert 0 <= min_lexicon_freq, 'Minimum lexicon frequency must be greater than 0'
         self.client = client
         self.num_state = num_state
         self._delta = delta
@@ -98,7 +106,8 @@ class StateMorphTrainer(object):
         self.__bulk_prob = bulk_prob
         self.__transition_ctrl = transition_ctrl
         self.__num_partitions = num_workers
-        self.__lexicon_limit = lexicon_limit
+        self.__min_lexicon_freq = min_lexicon_freq
+        self.__min_pruned_remain = min_pruned_remain
         self.__charset_size = charset is not None and len(charset) or 0
         self.__io = StateMorphIO(model_path + '/' + model_name, charset=charset)
         self.__init_model_param = None
@@ -210,7 +219,6 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Bulk de-registration started...')
         deregistered_morph = set()
         __map_key = lambda x: (x[0], int(x[1]))
-        lexicon_size = len(model_param['lexicon'])
         for i, (k, count) in enumerate(sorted(model_param['lexicon'].items(), key=lambda x: -x[1])):
             morph, state = __map_key(k.split('_'))
             r = random.random()
@@ -219,9 +227,6 @@ class StateMorphTrainer(object):
                 deregistered_morph.add((morph, state))
             elif self.__num_prefix < state <= self.num_state - self.__num_suffix and count > self.__stem_ubound and \
                 r < self.__bulk_prob:
-                deregistered_morph.add((morph, state))
-            elif self.__lexicon_limit and i >= self.__lexicon_limit and \
-                (r < (i - self.__lexicon_limit + 1) / (lexicon_size - self.__lexicon_limit + 1) or last_iteration):
                 deregistered_morph.add((morph, state))
               
         model_param['deregistered_morph'] = deregistered_morph
@@ -238,6 +243,28 @@ class StateMorphTrainer(object):
         log_wrapper("distributed.scheduler", 'Removed morphs: {}'.format(len(deregistered_morph)))
         return loss, new_model_param
     
+    def __prune_morphs(self, model_param, segmented_corpus):
+        log_wrapper("distributed.scheduler", 'Pruning morphs started...')
+        freq_dict = Counter(model_param['lexicon'].values())
+        total = len(model_param['lexicon'])
+            
+        pruned_size = 0
+        for prune_threshold in range(self.__min_lexicon_freq):
+            pruned_size += prune_threshold and freq_dict[prune_threshold] or 0
+            if total - pruned_size <= self.__min_pruned_remain:
+                break
+        
+        pruned_model_param = deepcopy(model_param)
+        pruned_model_param['lexicon'] = {k: v for k, v in model_param['lexicon'].items() if v >= prune_threshold}
+        remaining_morphs = pruned_model_param['lexicon'].keys()
+        pruned_segmented_corpus = [
+            (segments, cost) for (segments, cost) in segmented_corpus
+            if set(segments).issubset(remaining_morphs)
+        ]
+        log_wrapper("distributed.scheduler", 'Prune threshold: {}'.format(prune_threshold))
+        log_wrapper("distributed.scheduler", 'Morphs remain: {}'.format(len(remaining_morphs)))
+        return pruned_model_param, pruned_segmented_corpus
+        
     def train(self, max_iteration=10, bulk_dereg_every_n_epoch=0, save_corpus=False) -> BaseModel:
         """
         Train StateMorph model.
@@ -272,7 +299,7 @@ class StateMorphTrainer(object):
             self._current_temp = max(self._final_temp, self._current_temp * self._alpha)
             loss, model_param = self.__step(_, total_iteration)
             if random.random() < (math.exp(_/(total_iteration / 3.0)) - 1) / (math.exp(3) - 1) and \
-                (self.__bulk_prob > 0 and (self.__num_prefix > 0 or self.__num_suffix > 0) or self.__lexicon_limit) or \
+                self.__bulk_prob > 0 and (self.__num_prefix > 0 or self.__num_suffix > 0) or \
                     bulk_dereg_every_n_epoch and _ % bulk_dereg_every_n_epoch == 0:
                 loss, model_param = self.__bulk_de_registration(model_param, last_iteration=_ == total_iteration - 1)
             
@@ -292,7 +319,13 @@ class StateMorphTrainer(object):
         
         segmented_corpus = self.__collect()
         new_model = BaseModel(model_param)
+        final_cost = new_model.compute_encoding_cost()
         new_model.update_segmented_corpus(segmented_corpus, update_model=False)
-        self.__checkpoint(new_model, 'FINAL', new_model.compute_encoding_cost(), save_corpus=save_corpus)
+        self.__checkpoint(new_model, 'FINAL', final_cost, save_corpus=save_corpus)
+        if self.__min_lexicon_freq:
+            pruned_model_param, pruned_segmented_corpus = self.__prune_morphs(model_param, segmented_corpus)
+            pruned_model = BaseModel(pruned_model_param)
+            pruned_model.update_segmented_corpus(pruned_segmented_corpus, update_model=False)
+            self.__checkpoint(pruned_model, 'PRUNED', final_cost, save_corpus=save_corpus)
         # self.__io.remove_temp_files()
         return new_model
