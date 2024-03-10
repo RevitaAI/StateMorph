@@ -222,6 +222,7 @@ class StateMorphTrainer(object):
             pruned_model_param = deepcopy(model_param)
             pruned_model_param['lexicon'] = {k: v for k, v in model_param['lexicon'].items() if v > prune_threshold}
             remaining_morphs = [__map_key(_.split('_')) for _ in pruned_model_param['lexicon'].keys()]
+            self.__io.write_temp_file('pruned_model_param', pruned_model_param)
             self.__io.write_temp_file('remaining_morphs', remaining_morphs)
             log_wrapper("distributed.scheduler", 'Prune threshold: {}'.format(prune_threshold))
             log_wrapper("distributed.scheduler", 'Morphs remain: {}'.format(len(remaining_morphs)))
