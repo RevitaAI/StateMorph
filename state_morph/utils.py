@@ -147,10 +147,14 @@ def _map_segment(args):
     costs = [cost for _, cost in segmented_corpus if cost > 0]
     pruned_segmented_corpus = []
     if len(remaining_morphs):
-        pruned_segmented_corpus = [
-            (segments, cost) for (segments, cost) in segmented_corpus
-            if set(segments).issubset(remaining_morphs)
-        ]
+        for (segments, cost) in segmented_corpus:
+            if set(segments).issubset(remaining_morphs):
+                pruned_segmented_corpus.append((segments, cost))
+            else:
+                try:
+                    pruned_segmented_corpus.append(model.segment(''.join([morph for morph, _ in segments])))
+                except AssertionError:
+                    pass
     log_wrapper("distributed.worker", 'Map ID: {} ended...'.format(partition_id))
     return segmented_corpus, pruned_segmented_corpus, costs
 
