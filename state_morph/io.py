@@ -52,8 +52,7 @@ class StateMorphIO(object):
             StateMorph model.
         
         """
-        model_param = model.get_param_dict()
-        charset = set(''.join(([_.split('_')[0] for _ in model_param['lexicon'].keys()])))
+        charset = set(''.join({morph for morph, state in model.lexicon.keys()}))
         pickle.dump(charset, open(os.path.join(self.base_path, filename), 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
     
     def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, 
