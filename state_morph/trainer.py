@@ -325,5 +325,6 @@ class StateMorphTrainer(object):
             pruned_model = BaseModel(pruned_model_param)
             pruned_model.update_segmented_corpus(pruned_segmented_corpus, update_model=False)
             self.__checkpoint(pruned_model, 'PRUNED', final_cost, save_corpus=save_corpus)
+            self.__io.dump_charset(pruned_model, 'pruned_charset.bin')
         # self.__io.remove_temp_files()
         return new_model

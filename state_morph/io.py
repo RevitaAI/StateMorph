@@ -41,6 +41,20 @@ class StateMorphIO(object):
         
         """
         self.__charset = charset
+        
+    def dump_charset(self, model: BaseModel, filename: str) -> None:
+        """
+        Dump model current charset to a file.
+        
+        Parameters
+        ----------
+        model : BaseModel
+            StateMorph model.
+        
+        """
+        model_param = model.get_param_dict()
+        charset = set(''.join(([_.split('_')[0] for _ in model_param['lexicon'].keys()])))
+        pickle.dump(charset, open(os.path.join(self.base_path, filename), 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
     
     def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, 
                                    segmented_file: str, build_cache=False, **kwargs) -> BaseModel:
