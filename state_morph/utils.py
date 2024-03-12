@@ -134,14 +134,14 @@ def _split_partition(corpus, num_partitions):
 def _map_segment(args):
     """Map step function for multiprocessing."""
     partition_id, base_path = args
-    log = 'Seg ID: {} Host: {} PID: {} Corpus size: {} started...'.format(
-        partition_id, socket.gethostname(), os.getpid(), len(corpus)
-    )
-    log_wrapper("distributed.worker", log)
     io = StateMorphIO(base_path)
     corpus = io.load_partition_file(partition_id)
     model_param = io.load_temp_model_params()
     remaining_morphs = io.load_temp_file('remaining_morphs')
+    log = 'Seg ID: {} Host: {} PID: {} Corpus size: {} started...'.format(
+        partition_id, socket.gethostname(), os.getpid(), len(corpus)
+    )
+    log_wrapper("distributed.worker", log)
     model = BaseModel(model_param)
     _, segmented_corpus = model.train_step(corpus, is_final=True)
     costs = [cost for _, cost in segmented_corpus if cost > 0]
