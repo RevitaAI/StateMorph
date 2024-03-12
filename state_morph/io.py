@@ -223,7 +223,10 @@ class StateMorphIO(object):
             Data loaded from the file.
         
         '''
-        return pickle.load(open(os.path.join(self.base_path, 'tmp', filename), 'rb'))
+        try:
+            return pickle.load(open(os.path.join(self.base_path, 'tmp', filename), 'rb'))
+        except:
+            return None
     
     def write_temp_model_params(self, model_param: dict) -> None:
         '''
