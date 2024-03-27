@@ -5,6 +5,7 @@ from Cython.Build import cythonize
 from distutils.core import setup
 from distutils.extension import Extension
 from datetime import datetime
+from setuptools_scm import get_version
 
 import re
 main_py = open('state_morph/__init__.py', encoding='utf-8').read()
@@ -25,7 +26,7 @@ ext_modules=[
 
 setup(
     name='StateMorph',
-    version=metadata['version'] + datetime.now().strftime('+beta%Y%m%d'),
+    version=get_version(),
     author=metadata['author'],
     author_email='revita@cs.helsinki.fi',
     #   url='',
@@ -40,7 +41,7 @@ setup(
         'Programming Language :: Python',
         'Topic :: Scientific/Engineering',
     ],
-    python_requires='>=3.7',
+    python_requires='>=3.8',
     license="BSD",
     scripts=[],
     install_requires=requires,

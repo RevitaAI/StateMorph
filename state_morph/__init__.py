@@ -1,11 +1,11 @@
 __all__ = ['StateMorphTrainer', 'StateMorphIO', 'BaseModel']
+from ._version import version, __version__
 
-__version__ = '0.0.1'
 __author__ = 'Jue Hou'
 __author_email__ = "revita@cs.helsinki.fi"
 
 def get_version():
-    return __version__
+    return version
 
 from .io import StateMorphIO
 from .core import BaseModel
