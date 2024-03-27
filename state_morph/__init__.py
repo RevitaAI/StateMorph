@@ -11,7 +11,7 @@ __author__ = 'Jue Hou'
 __author_email__ = "revita@cs.helsinki.fi"
 
 def get_version():
-    return version
+    return __version__
 
 from .io import StateMorphIO
 from .core import BaseModel
