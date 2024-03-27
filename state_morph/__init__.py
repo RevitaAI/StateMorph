@@ -1,4 +1,4 @@
-__all__ = ['StateMorphTrainer', 'StateMorphIO', 'BaseModel']
+__all__ = ['StateMorphTrainer', 'StateMorphIO', 'BaseModel', 'get_version']
 from ._version import version, __version__
 
 __author__ = 'Jue Hou'
