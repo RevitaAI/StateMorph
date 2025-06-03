@@ -8,6 +8,7 @@ class BaseModel(object):
     LOG_2 = math.log(2)
     HALF_LOG_2_PI = 0.5 * math.log(2.0 * math.pi)
     MORPH_SIZE = 8
+    WORD_BOUNDARY = '▁'
     def __init__(self, model_param):
         '''
         # Suitable for multiprocessing
@@ -38,6 +39,7 @@ class BaseModel(object):
         self.transition_ctrl = {}
         self.segmented_corpus = []
         self.__cached_segment = {}
+        self.__has_word_boundary = False
         self.__load_model_params(model_param)
         # double result = 0.0;
         # for(double x = count ; x < count+added ; x++){
@@ -54,11 +56,13 @@ class BaseModel(object):
             'lexicon': {'{}_{}'.format(*k): v for k, v in self.lexicon.items()},
             'state_freq': self.state_freq,
             'transition_freq': self.transition_freq,
-            'transition_ctrl': self.transition_ctrl
+            'transition_ctrl': self.transition_ctrl,
+            'has_word_boundary': self.__has_word_boundary,
         }
         return model_params
         
     def summary(self) -> None:
+        print('Has word boundary: {}'.format(self.__has_word_boundary))
         print('Number of states: {}'.format(self.num_state))
         print('Number of prefix states: {}'.format(self.num_prefix))
         print('Number of suffix states: {}'.format(self.num_suffix))
@@ -72,6 +76,7 @@ class BaseModel(object):
 
     def __load_model_params(self, model_params:dict):
         __map_key = lambda x: (x[0], int(x[1]))
+        self.__has_word_boundary = model_params.get('has_word_boundary', False)
         self.num_state = model_params['num_state']
         self.lexicon = {__map_key(k.split('_')): v for k, v in model_params['lexicon'].items()}
         self.state_freq = {int(k): v for k, v in model_params['state_freq'].items()}
@@ -226,25 +231,28 @@ class BaseModel(object):
             return self.__search(word)
     
     def __search(self, word: str, temperature=0, is_training=False) -> tuple :
-        to_be_segmented = '$' + word + '#'
+        to_be_segmented = f'${word}#'
+        if self.__has_word_boundary:
+            to_be_segmented = f'${BaseModel.WORD_BOUNDARY}{word}#'
         dp_matrix = [[{
             'state': state, 
             'char_index': char_index, 
             'cost': 0 if char_index ==0 and state == 0 else math.inf, 
             'previous': None, 
             'morph': to_be_segmented[char_index]
-        } for char_index in range(len(word) + 2)] for state in range(self.num_state)]
+        } for char_index in range(len(word) + 2 + self.__has_word_boundary)] for state in range(self.num_state)]
         dp_matrix[0][0]['cost'] = 0
-        for char_idx in range(1, len(word) + 2):
+        for char_idx in range(1 + self.__has_word_boundary, len(word) + 2 + self.__has_word_boundary):
             for state in range(1, self.num_state):
-                searching_middle = char_idx != len(word) + 1 and state != self.num_state - 1
-                searching_end = char_idx == len(word) + 1 and state == self.num_state - 1
+                searching_middle = char_idx != len(word) + 1 + self.__has_word_boundary and state != self.num_state - 1
+                searching_end = char_idx == len(word) + 1 + self.__has_word_boundary and state == self.num_state - 1
                 if searching_middle or searching_end:
                     current_cell = dp_matrix[state][char_idx]
                     search_space = [
                         cell 
                         for chars in dp_matrix[: -1]
                         for cell in chars[max(char_idx - BaseModel.MORPH_SIZE, 0): char_idx]
+                        if not self.__has_word_boundary or cell['char_index'] != 1
                     ]
                     
                     if searching_end:

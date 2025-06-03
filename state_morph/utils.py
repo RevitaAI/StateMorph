@@ -5,14 +5,15 @@ import socket
 import os
 import logging
 
-empty_model_param = lambda num_state, num_prefix, num_suffix, transition_ctrl: {
+empty_model_param = lambda num_state, num_prefix, num_suffix, transition_ctrl, has_word_boundary: {
     'num_state': num_state,
     'num_prefix': num_prefix,
     'num_suffix': num_suffix,
     'lexicon': {},
     'state_freq': {k : 0 for k in range(num_state)},
     'transition_freq': [[0 for _ in range(num_state)] for _ in range(num_state)],
-    'transition_ctrl': transition_ctrl
+    'transition_ctrl': transition_ctrl,
+    'has_word_boundary': has_word_boundary,
 }
 
 log_wrapper = lambda logger, log: logging.getLogger(logger).info(log)
@@ -38,16 +39,16 @@ def _map_step(args):
         random_segmented_corpus = _random_segment(
             to_be_random_segmented, init_model_param['num_state'], 
             init_model_param['num_prefix'], init_model_param['num_suffix'],
-            init_model_param['transition_ctrl'])
+            init_model_param['transition_ctrl'], init_model_param['has_word_boundary'])
         model.update_segmented_corpus(segmented_corpus + random_segmented_corpus)
     model_param = model.get_param_dict()
     log_wrapper("distributed.worker", 'Map ID: {} ended...'.format(partition_id))
     return model_param
 
-_reduce_step_wrapper = lambda num_state, num_prefix, num_suffix, transition_ctrl: lambda map_outputs: \
-    _reduce_step(map_outputs, num_state, num_prefix, num_suffix, transition_ctrl)
+_reduce_step_wrapper = lambda num_state, num_prefix, num_suffix, transition_ctrl, has_word_boundary: \
+    lambda map_outputs: _reduce_step(map_outputs, num_state, num_prefix, num_suffix, transition_ctrl, has_word_boundary)
                 
-def _reduce_step(map_outputs, num_state, num_prefix, num_suffix, transition_ctrl):
+def _reduce_step(map_outputs, num_state, num_prefix, num_suffix, transition_ctrl, has_word_boundary):
     def _reduce(reduced_model_param, model_param):
         """Reduce step function for multiprocessing."""
         total_model_param = reduced_model_param
@@ -71,14 +72,14 @@ def _reduce_step(map_outputs, num_state, num_prefix, num_suffix, transition_ctrl
         return total_model_param
     
     
-    _model_param = empty_model_param(num_state, num_prefix, num_suffix, transition_ctrl)
+    _model_param = empty_model_param(num_state, num_prefix, num_suffix, transition_ctrl, has_word_boundary)
 
     for model_param in map_outputs:
         _model_param =_reduce(_model_param, model_param)
     _cost = BaseModel(_model_param).compute_encoding_cost()
     return _model_param, _cost        
 
-def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl):
+def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl, has_word_boundary):
     segmented_corpus = []
     for word in corpus:
         if len(word) > 1:
@@ -103,18 +104,20 @@ def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl):
             ]
         else:
             segment = [(word, random.randint(num_prefix + 1, num_state - num_suffix - 2))]
+        if has_word_boundary:
+            segment[0] = (BaseModel.WORD_BOUNDARY + segment[0][0], segment[0][1])
         segmented_corpus.append((segment, 0))
     return segmented_corpus
 
 def _random_segment_wrapper(args) -> list:
-    partition_id, base_path, num_state, num_prefix, num_suffix, transition_ctrl = args
+    partition_id, base_path, num_state, num_prefix, num_suffix, transition_ctrl, has_word_boundary = args
     corpus = StateMorphIO(base_path).load_partition_file(partition_id)
     log = 'Random Seg ID: {} Host: {} PID: {} Corpus size: {} started...'.format(
         partition_id, socket.gethostname(), os.getpid(), len(corpus)
     )
     log_wrapper("distributed.worker", log)
-    model_param = empty_model_param(num_state, num_prefix, num_suffix, transition_ctrl)
-    segmented_corpus = _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl)
+    model_param = empty_model_param(num_state, num_prefix, num_suffix, transition_ctrl, has_word_boundary)
+    segmented_corpus = _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl, has_word_boundary)
     model = BaseModel(model_param)
     model.update_segmented_corpus(segmented_corpus)
     log_wrapper("distributed.worker", 'Random Seg ID: {} ended...'.format(partition_id))

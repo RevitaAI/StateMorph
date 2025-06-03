@@ -13,7 +13,8 @@ class StateMorphTrainer(object):
     def __init__(self, client: Client, num_workers: int, num_state: int, model_path: str, model_name: str,
                  delta=1e-6, patience=10, init_temp=100, final_temp=1e-4, alpha=0.95, schedule='concave', 
                  num_prefix=0, num_suffix=0, affix_lbound=60, stem_ubound=150, bulk_prob = 0.15,
-                 transition_ctrl={}, charset=None, min_lexicon_freq=0, min_pruned_remain=0) -> None:
+                 transition_ctrl={}, charset=None, min_lexicon_freq=0, min_pruned_remain=0, 
+                 has_word_boundary=False) -> None:
         '''
         The trainer class for StateMorph model. 
         This class is responsible for training the model.
@@ -69,7 +70,9 @@ class StateMorphTrainer(object):
             The minimum number of pruned morphs to remain. Default is 0.
             Stop pruning if the number of remaining morphs is less than min_pruned_remain.
             If 0, the pruning will not stop until the frequency of lexicon is less than min_lexicon_freq.
-
+        has_word_boundary: bool
+            Assign word boundary in segmentation. Default is False.
+            If True, the segmentation will include word boundary "▁" in the first morph of each word.
             
             
         Examples
@@ -109,6 +112,7 @@ class StateMorphTrainer(object):
         self.__min_lexicon_freq = min_lexicon_freq
         self.__min_pruned_remain = min_pruned_remain
         self.__charset_size = charset is not None and len(charset) or 0
+        self.__has_word_boundary = has_word_boundary
         self.__io = StateMorphIO(model_path + '/' + model_name, charset=charset)
         self.__init_model_param = None
         
@@ -160,13 +164,21 @@ class StateMorphTrainer(object):
             results = self.client.gather(futures)
             assert sum(results) == self.__num_partitions, 'Dumping partitions failed'
             if self.__init_model_param is None:
-                partition_with_arg = self.client.scatter([
-                    (i, self.__io.base_path, self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl)
-                    for i in range(self.__num_partitions)
-                ])
+                partition_func = lambda i: (
+                    i, 
+                    self.__io.base_path, 
+                    self.num_state, 
+                    self.__num_prefix, 
+                    self.__num_suffix, 
+                    self.__transition_ctrl,
+                    self.__has_word_boundary
+                )
+                partition_with_arg = self.client.scatter([partition_func(i) for i in range(self.__num_partitions)])
                 futures =  self.client.map(_random_segment_wrapper, partition_with_arg)
                 reduce_step = self.client.submit(
-                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
+                    _reduce_step_wrapper(
+                        self.num_state, self.__num_prefix, self.__num_suffix, 
+                        self.__transition_ctrl, self.__has_word_boundary), 
                     futures)
                 self.__init_model_param, self.__init_loss = reduce_step.result()
             self.__io.write_temp_model_params(self.__init_model_param)
@@ -196,7 +208,9 @@ class StateMorphTrainer(object):
             for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_step, partition_with_arg)
         reduce_step = self.client.submit(
-                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
+                    _reduce_step_wrapper(
+                        self.num_state, self.__num_prefix, self.__num_suffix, 
+                        self.__transition_ctrl, self.__has_word_boundary), 
                     futures)
         model_param, loss = reduce_step.result()
         self.__io.write_temp_model_params(model_param)
@@ -258,7 +272,9 @@ class StateMorphTrainer(object):
             (i, self.__io.base_path, 0.0, 0.0) for i in range(self.__num_partitions)])
         futures =  self.client.map(_map_step, partition_with_arg)
         reduce_step = self.client.submit(
-                    _reduce_step_wrapper(self.num_state, self.__num_prefix, self.__num_suffix, self.__transition_ctrl), 
+                    _reduce_step_wrapper(
+                        self.num_state, self.__num_prefix, self.__num_suffix, 
+                        self.__transition_ctrl, self.__has_word_boundary), 
                     futures)
         new_model_param, loss = reduce_step.result()
         self.__io.write_temp_model_params(new_model_param)

@@ -55,7 +55,7 @@ class StateMorphIO(object):
         charset = set(''.join({morph for morph, state in model.lexicon.keys()}))
         pickle.dump(charset, open(os.path.join(self.base_path, filename), 'wb'), protocol=pickle.HIGHEST_PROTOCOL)
     
-    def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, 
+    def load_model_from_text_files(self, num_state: int, num_prefix: int, num_suffix: int, has_word_boundary: bool,
                                    segmented_file: str, build_cache=False, **kwargs) -> BaseModel:
         """
         Read StateMorph from text file.
@@ -68,6 +68,8 @@ class StateMorphIO(object):
             Number of prefix states.
         num_suffix : int
             Number of suffix states.
+        has_word_boundary : bool
+            If True, the model has word boundary.
         segmented_file : str
             File name of segmented corpus.
         build_cache : bool
@@ -76,7 +78,8 @@ class StateMorphIO(object):
         
         """
         from .utils import empty_model_param
-        model_params = empty_model_param(num_state, num_prefix, num_suffix, kwargs.get('transition_ctrl', {}))
+        model_params = empty_model_param(
+            num_state, num_prefix, num_suffix, kwargs.get('transition_ctrl', {}), has_word_boundary)
         model = BaseModel(model_params, **kwargs)
         self.__load_model_file(model, os.path.join(self.base_path, segmented_file), build_cache)
         return model

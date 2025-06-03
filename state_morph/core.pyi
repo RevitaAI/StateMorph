@@ -5,6 +5,7 @@ class BaseModel:
     LOG_2: Incomplete
     HALF_LOG_2_PI: Incomplete
     MORPH_SIZE: int
+    WORD_BOUNDARY: str
     num_state: int
     lexicon: Incomplete
     state_freq: Incomplete
