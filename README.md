@@ -38,7 +38,7 @@ cluster.close()
 ```
 
 ## Training with cluster
-
+### SSH
 ```python
 
 from dask.distributed import Client, SSHCluster
@@ -50,6 +50,45 @@ cluster = SSHCluster([master_node] + worker_nodes,
                      scheduler_options={"port": 0, "dashboard_address": ":8797"}) 
 
 ```
+
+### MPI
+```bash
+#!/bin/bash
+
+#SBATCH --job-name=StateMorph
+#SBATCH -A <PROJECT_ID>
+#SBATCH -o <LOG_PATH>
+#SBATCH -p <PARTITION>
+#SBATCH --mail-type=BEGIN,END,FAIL,TIME_LIMIT_90
+#SBATCH --mail-user=<EMAIL_ADDR>
+#SBATCH --nodes=<NUM_NODE>
+#SBATCH --ntasks-per-node=<NUM_TASK>
+#SBATCH --cpus-per-task=1
+#SBATCH -c <NUM_CPU>
+#SBATCH -t <DURATION>
+#SBATCH --mem=<MEM_SIZE>
+
+module purge
+module load <PYTHON_MODULE>
+
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+
+srun python3 <TRAIN_SCRIPT.py>
+```
+
+```python
+from dask_mpi import initialize
+
+initialize(
+    nthreads=<THREADS_PER_WORKER>,
+    memory_limit=<MEMORY_LIMIT>
+)
+client = Client()
+
+```
+
 
 NB: Dask share memory with worker evenly. Yet *Reduce* may require extra memory than *Map*. Reset `memory_limit` to meet the requirement.
 
