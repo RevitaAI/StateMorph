@@ -101,9 +101,9 @@ class BaseModel(object):
                 self.__morph2state2freq[morph] = {}
             self.__morph2state2freq[morph][state] = count
             # lexicon.getMorphList(state).stream().map((Morphable m) -> m.getLength() + 1).reduce(Integer::sum).get();
-            __state_char_size[state] += len(morph) + 1
+            __state_char_size[state] += self.__get_morph_length(morph) + 1
             self.__state_size[state] += 1
-            for char, _ in Counter(morph).items():
+            for char, _ in self.__get_morph_char_count(morph).items():
                 __state2char2counts[state][char] = __state2char2counts[state].get(char, 0) + _ * count
                 self.__charset.add(char)
         self.__num_bit_per_char = math.ceil(math.log(len(self.__charset) + 1) /  BaseModel.LOG_2)
@@ -232,27 +232,30 @@ class BaseModel(object):
     
     def __search(self, word: str, temperature=0, is_training=False) -> tuple :
         to_be_segmented = f'${word}#'
+        word_boundary_size = 0
         if self.__has_word_boundary:
             to_be_segmented = f'${BaseModel.WORD_BOUNDARY}{word}#'
+            word_boundary_size = len(BaseModel.WORD_BOUNDARY)
         dp_matrix = [[{
             'state': state, 
             'char_index': char_index, 
             'cost': 0 if char_index ==0 and state == 0 else math.inf, 
             'previous': None, 
             'morph': to_be_segmented[char_index]
-        } for char_index in range(len(word) + 2 + self.__has_word_boundary)] for state in range(self.num_state)]
+        } for char_index in range(len(word) + 2 + word_boundary_size)] for state in range(self.num_state)]
         dp_matrix[0][0]['cost'] = 0
-        for char_idx in range(1 + self.__has_word_boundary, len(word) + 2 + self.__has_word_boundary):
+        for char_idx in range(1 + word_boundary_size, len(word) + 2 + word_boundary_size):
             for state in range(1, self.num_state):
-                searching_middle = char_idx != len(word) + 1 + self.__has_word_boundary and state != self.num_state - 1
-                searching_end = char_idx == len(word) + 1 + self.__has_word_boundary and state == self.num_state - 1
+                searching_middle = char_idx != len(word) + 1 + word_boundary_size and state != self.num_state - 1
+                searching_end = char_idx == len(word) + 1 + word_boundary_size and state == self.num_state - 1
                 if searching_middle or searching_end:
                     current_cell = dp_matrix[state][char_idx]
                     search_space = [
                         cell 
                         for chars in dp_matrix[: -1]
                         for cell in chars[max(char_idx - BaseModel.MORPH_SIZE, 0): char_idx]
-                        if not self.__has_word_boundary or cell['char_index'] != 1
+                        if not self.__has_word_boundary or \
+                            cell['char_index'] == 0 or cell['char_index'] > len(BaseModel.WORD_BOUNDARY)
                     ]
                     
                     if searching_end:
@@ -319,8 +322,8 @@ class BaseModel(object):
                                (self.state_freq[state] + (self.__state_size[state] + 1) * BaseModel.PRIOR))
             # cost += costOfAddingMorphToClass(state, morph)
             
-            pos_part = self.__add_morph_pos[(state, len(morph))]
-            neg_part = sum(map(lambda x: self.__add_morph_neg_1[(state, x[0], x[1])], Counter(morph).items()))
+            pos_part = self.__add_morph_pos[(state, self.__get_morph_length(morph))]
+            neg_part = sum(map(lambda x: self.__add_morph_neg_1[(state, x[0], x[1])], self.__get_morph_char_count(morph).items()))
             neg_part += self.__add_morph_neg_2[state]
             
             cost += pos_part - neg_part
@@ -401,7 +404,7 @@ class BaseModel(object):
             sum_counts = 0
             if class_size > 0:
                 for morph in morphs:
-                    lexicon_length += self.__num_bit_per_char * (len(morph) + 1)
+                    lexicon_length += self.__num_bit_per_char * (self.__get_morph_length(morph) + 1)
                     emissions_length -= math.lgamma(self.__state2morph2freq[state][morph] + BaseModel.PRIOR)
                     emissions_length += math.lgamma(BaseModel.PRIOR)
                     sum_counts += self.__state2morph2freq[state][morph]
@@ -413,3 +416,20 @@ class BaseModel(object):
         
         return lexicon_length, emissions_length
     
+    def __get_morph_length(self, morph: str) -> int:
+        """
+        Returns the length of the morph, excluding the word boundary if present.
+        """
+        morph_length = len(morph)
+        if self.__has_word_boundary and morph.startswith(BaseModel.WORD_BOUNDARY):
+            morph_length -= len(BaseModel.WORD_BOUNDARY)  # Exclude word boundary character from length
+        return morph_length
+
+    def __get_morph_char_count(self, morph: str) -> Counter:
+        """
+        Returns a dictionary with character counts in the morph, excluding the word boundary if present.
+        """
+        temp = morph
+        if self.__has_word_boundary and morph.startswith(BaseModel.WORD_BOUNDARY):
+            temp = morph[len(BaseModel.WORD_BOUNDARY):]  # Exclude word boundary character
+        return Counter(temp)
