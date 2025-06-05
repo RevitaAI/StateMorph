@@ -259,10 +259,10 @@ class StateMorphTrainer(object):
         for i, (k, count) in enumerate(sorted(model_param['lexicon'].items(), key=lambda x: -x[1])):
             morph, state = __map_key(k.split('_'))
             r = random.random()
-            if (state <= self.__num_prefix or state > self.num_state - self.__num_suffix) and \
+            if (state <= self.__num_prefix or state > self.num_state - self.__num_suffix - 2) and \
                 count < self.__affix_lbound and r < self.__bulk_prob:
                 deregistered_morph.add((morph, state))
-            elif self.__num_prefix < state <= self.num_state - self.__num_suffix and count > self.__stem_ubound and \
+            elif self.__num_prefix < state <= self.num_state - self.__num_suffix - 2 and count > self.__stem_ubound and \
                 r < self.__bulk_prob:
                 deregistered_morph.add((morph, state))
               
