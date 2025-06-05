@@ -92,9 +92,13 @@ def _random_segment(corpus, num_state, num_prefix, num_suffix, transition_ctrl, 
                 if bounds[0] != 0:
                     bounds.insert(0, 0)
                 bounds = [(start, end) for start, end in zip(bounds[:-1], bounds[1:]) if start != end]
+                # 17 States, 3 Prefixes, 3 Suffixes, 0 for beginning and 16 for end
+                # Prefixes: 1, 2, 3 -> 1 ~ num_prefix
                 prefixes = [random.randint(1, num_prefix) for _ in range(random.randint(0, num_prefix))]
-                suffixes = [random.randint(num_state - num_suffix - 2 , num_state - 2 )
+                # Suffixes: 13, 14, 15 -> 17 - 3 - 1 ~ 17 - 2 -> num_state - num_suffix - 1 ~ num_state - 2
+                suffixes = [random.randint(num_state - num_suffix - 1 , num_state - 2 )
                             for _ in range(random.randint(0, num_suffix))]
+                # Stems: 4, 5, 6, ..., 12 -> 3 + 1 ~ 17 - 3 - 2 -> num_prefix + 1 ~ num_state - num_suffix - 2
                 stems = [random.randint(num_prefix + 1, num_state - num_suffix - 2) 
                         for _ in range(len(bounds) - len(prefixes) - len(suffixes))]
                 states = prefixes + stems + suffixes

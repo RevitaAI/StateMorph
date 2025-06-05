@@ -259,11 +259,15 @@ class StateMorphTrainer(object):
         for i, (k, count) in enumerate(sorted(model_param['lexicon'].items(), key=lambda x: -x[1])):
             morph, state = __map_key(k.split('_'))
             r = random.random()
+            # 17 States, 3 Prefixes, 3 Suffixes, 0 for beginning and 16 for end
             if (state <= self.__num_prefix or state > self.num_state - self.__num_suffix - 2) and \
                 count < self.__affix_lbound and r < self.__bulk_prob:
+                # Prefixes: 1 ~ 3 -> state <= num_prefix
+                # Suffixes: 13 ~ 15 -> state > 17 - 3 - 2
                 deregistered_morph.add((morph, state))
             elif self.__num_prefix < state <= self.num_state - self.__num_suffix - 2 and count > self.__stem_ubound and \
                 r < self.__bulk_prob:
+                # Stem: 4 ~ 12 -> num_prefix < state <= num_state - num_suffix - 2
                 deregistered_morph.add((morph, state))
               
         model_param['deregistered_morph'] = deregistered_morph
