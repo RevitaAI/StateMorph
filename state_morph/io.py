@@ -29,6 +29,18 @@ class StateMorphIO(object):
         self.__charset = charset
         if self.__charset is None:
             self.__charset = set()
+            
+    def get_charset(self) -> set:
+        """
+        Get charset.
+        
+        Returns
+        -------
+        charset : set
+            Charset.
+        
+        """
+        return self.__charset
     
     def set_charset(self, charset: set) -> None:
         """

@@ -154,6 +154,9 @@ class StateMorphTrainer(object):
                 charset = set(''.join(corpus))
                 self.__io.set_charset(charset)
                 self.__charset_size = len(charset)
+            else:
+                charset = self.__io.get_charset()
+                corpus = list(filter(lambda x: set(x).issubset(charset), corpus))
             log_wrapper("distributed.scheduler", 'Charset size: {}'.format(self.__charset_size))
             __partitions = _split_partition(corpus, self.__num_partitions)
             partitions = self.client.scatter([ (i, self.__io.base_path, partition)
