@@ -185,7 +185,7 @@ class StateMorphTrainer(object):
                     futures)
                 self.__init_model_param, self.__init_loss = reduce_step.result()
             self.__io.write_temp_model_params(self.__init_model_param)
-            log_wrapper("distributed.scheduler", 'Corpus loaded...')
+            log_wrapper("distributed.scheduler", 'Corpus loaded: {}'.format(len(corpus)))
     
     def __segment_randomly(self, iteration, total_iteration):
         prob = 0
