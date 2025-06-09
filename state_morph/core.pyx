@@ -159,7 +159,7 @@ class BaseModel(object):
         self.segmented_corpus = segmented_corpus
         if build_cache:
             self.__cached_segment = {
-                ''.join([morph for morph, _ in segment]): (segment, cost)
+                ''.join([morph for morph, _ in segment]).lstrip(BaseModel.WORD_BOUNDARY): (segment, cost)
                 for (segment, cost) in segmented_corpus
             }
         if update_model:
@@ -169,7 +169,7 @@ class BaseModel(object):
     def train_step(self, corpus=[], temperature=0, is_final=False) -> tuple:
         segmented_corpus = []
         for segment, _ in self.segmented_corpus:
-            word = ''.join([morph for morph, _ in segment])
+            word = ''.join([morph for morph, _ in segment]).lstrip(BaseModel.WORD_BOUNDARY)
             new_segment, new_cost = self.__search(word, temperature=temperature, is_training=not is_final)
             if new_cost != math.inf:
                 segmented_corpus.append((new_segment, new_cost))
