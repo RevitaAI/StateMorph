@@ -224,7 +224,7 @@ class BaseModel(object):
         return lexicon_encoding_cost + emissions_encoding_cost + transition_encoding_cost
 
     def segment(self, word: str) -> tuple:
-        assert set(word).issubset(self.__charset), 'Word contains characters not in charset'
+        assert set(word).issubset(self.__charset), f'Word {word} contains characters not in charset'
         try:
             return self.__cached_segment[word]
         except KeyError:
